@@ -1,0 +1,43 @@
+#!/bin/sh
+# Dockling's `claude` wrapper (PATH shim, same pattern pyenv/rbenv/asdf use).
+# Transparently runs the real `claude` CLI inside a tmux session, so Dockling's
+# reply-from-Dock feature always has a pane to target — without the user ever
+# running tmux themselves. See DOCKLING_SPEC.md Phase 3.
+#
+# Prototype only: not yet wired into an installer. An installer would place
+# this on $PATH ahead of the real claude (e.g. a directory prepended in the
+# user's shell rc, shown to them before writing, never silently).
+set -eu
+
+SELF_DIR=$(cd "$(dirname "$0")" && pwd)
+
+# Find the real claude binary by walking $PATH ourselves and skipping our own
+# directory — `command claude` won't work here, since `command` still does a
+# normal PATH search and would just find this same shim again.
+find_real_claude() {
+    old_ifs=$IFS
+    IFS=:
+    for dir in $PATH; do
+        IFS=$old_ifs
+        if [ "$dir" != "$SELF_DIR" ] && [ -x "$dir/claude" ] && [ ! -d "$dir/claude" ]; then
+            echo "$dir/claude"
+            return 0
+        fi
+        IFS=:
+    done
+    IFS=$old_ifs
+    return 1
+}
+
+REAL_CLAUDE=$(find_real_claude) || {
+    echo "dockling: could not find the real claude executable on \$PATH" >&2
+    exit 1
+}
+
+if [ -n "${TMUX:-}" ]; then
+    # Already inside tmux (e.g. the user's own setup) — don't nest a session,
+    # just run claude directly in the pane that's already there.
+    exec "$REAL_CLAUDE" "$@"
+fi
+
+exec tmux -f "$SELF_DIR/tmux-dockling.conf" new-session -s "dockling-$$" "$REAL_CLAUDE" "$@"
