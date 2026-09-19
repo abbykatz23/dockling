@@ -36,24 +36,79 @@ func keyedDuckImage() -> CGImage {
     }
     ctx.draw(sourceCGImage, in: CGRect(x: 0, y: 0, width: width, height: height))
 
-    // Soft key on "whiteness" (min channel) rather than a hard per-channel cutoff,
-    // since JPEG compression leaves the background a noisy off-white, not flat 255.
-    let opaqueBelow: Int = 210      // min(r,g,b) at/under this stays fully opaque
-    let transparentAbove: Int = 246 // min(r,g,b) at/over this goes fully transparent
+    // Flood-fill the background from the image border rather than a global
+    // color threshold, so only paper actually connected to the edge gets keyed
+    // out — light crayon highlights *inside* the duck's silhouette survive,
+    // instead of being punched into holes by a naive whiteness cutoff.
     func minChannel(at i: Int) -> Int { min(Int(pixels[i]), Int(pixels[i + 1]), Int(pixels[i + 2])) }
+    let fillThreshold = 220
 
-    for i in stride(from: 0, to: pixels.count, by: 4) {
-        let m = minChannel(at: i)
-        if m >= transparentAbove {
-            pixels[i] = 0; pixels[i + 1] = 0; pixels[i + 2] = 0; pixels[i + 3] = 0
-        } else if m > opaqueBelow {
-            let t = Double(m - opaqueBelow) / Double(transparentAbove - opaqueBelow)
-            let scale = 1.0 - t // also scale RGB to keep the buffer validly premultiplied
-            pixels[i] = UInt8(Double(pixels[i]) * scale)
-            pixels[i + 1] = UInt8(Double(pixels[i + 1]) * scale)
-            pixels[i + 2] = UInt8(Double(pixels[i + 2]) * scale)
-            pixels[i + 3] = UInt8(Double(pixels[i + 3]) * scale)
+    var isBackground = [Bool](repeating: false, count: width * height)
+    var queue = [Int]()
+    queue.reserveCapacity(width * height / 4)
+
+    func tryEnqueue(_ x: Int, _ y: Int) {
+        guard x >= 0, x < width, y >= 0, y < height else { return }
+        let idx = y * width + x
+        if isBackground[idx] { return }
+        if minChannel(at: idx * 4) >= fillThreshold {
+            isBackground[idx] = true
+            queue.append(idx)
         }
+    }
+    for x in 0..<width { tryEnqueue(x, 0); tryEnqueue(x, height - 1) }
+    for y in 0..<height { tryEnqueue(0, y); tryEnqueue(width - 1, y) }
+
+    var head = 0
+    while head < queue.count {
+        let idx = queue[head]; head += 1
+        let x = idx % width, y = idx / width
+        tryEnqueue(x + 1, y); tryEnqueue(x - 1, y)
+        tryEnqueue(x, y + 1); tryEnqueue(x, y - 1)
+    }
+
+    // Hard mask from the flood fill, then a small box blur for anti-aliased
+    // (not jagged) edges, applied in two passes (horizontal, then vertical).
+    var alphaMask = [Double](repeating: 0, count: width * height)
+    for idx in 0..<(width * height) { alphaMask[idx] = isBackground[idx] ? 0 : 255 }
+
+    func boxBlur(_ input: [Double], radius: Int) -> [Double] {
+        var horizontal = [Double](repeating: 0, count: width * height)
+        for y in 0..<height {
+            let rowStart = y * width
+            for x in 0..<width {
+                var sum = 0.0, count = 0.0
+                for dx in -radius...radius {
+                    let nx = x + dx
+                    guard nx >= 0, nx < width else { continue }
+                    sum += input[rowStart + nx]; count += 1
+                }
+                horizontal[rowStart + x] = sum / count
+            }
+        }
+        var vertical = [Double](repeating: 0, count: width * height)
+        for x in 0..<width {
+            for y in 0..<height {
+                var sum = 0.0, count = 0.0
+                for dy in -radius...radius {
+                    let ny = y + dy
+                    guard ny >= 0, ny < height else { continue }
+                    sum += horizontal[ny * width + x]; count += 1
+                }
+                vertical[y * width + x] = sum / count
+            }
+        }
+        return vertical
+    }
+    let smoothAlpha = boxBlur(alphaMask, radius: 2)
+
+    for idx in 0..<(width * height) {
+        let i = idx * 4
+        let a = smoothAlpha[idx] / 255.0
+        pixels[i] = UInt8(Double(pixels[i]) * a)
+        pixels[i + 1] = UInt8(Double(pixels[i + 1]) * a)
+        pixels[i + 2] = UInt8(Double(pixels[i + 2]) * a)
+        pixels[i + 3] = UInt8(smoothAlpha[idx])
     }
 
     // Trim to the duck's bounding box (with a small margin) so the large,
