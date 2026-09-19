@@ -149,10 +149,19 @@ func keyCheckerboard(_ image: CGImage) -> CGImage {
 func cropToBBox(_ image: CGImage) -> CGImage {
     let (pixels, width, height, colorSpace) = rgbaBuffer(image)
 
+    // Threshold is intentionally high (not just "> 0" or a low value like 10):
+    // some source PNGs have scattered near-invisible noise pixels (alpha ~2-3)
+    // out near their canvas edges, invisible to the eye but enough to blow out
+    // the measured bounding box and make the fitted duck render smaller than
+    // it should — this is what caused non-yellow colors to look smaller than
+    // yellow (whose pipeline, checkerboard flood-fill, isn't susceptible to
+    // this). A real edge's alpha ramps to 255 within a pixel or two, so this
+    // only tightens the crop negligibly for genuine artwork.
+    let contentThreshold: UInt8 = 128
     var minX = width, maxX = 0, minY = height, maxY = 0
     for y in 0..<height {
         for x in 0..<width {
-            if pixels[(y * width + x) * 4 + 3] > 10 {
+            if pixels[(y * width + x) * 4 + 3] > contentThreshold {
                 minX = min(minX, x); maxX = max(maxX, x)
                 minY = min(minY, y); maxY = max(maxY, y)
             }
