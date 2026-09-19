@@ -100,12 +100,16 @@ struct HookEvent {
     let name: String
     let toolName: String?
     let tmuxPane: String? // only present on the SessionStart command hook — see report_session_start.sh
+    let message: String? // Notification only: human-readable text, e.g. "Permission needed to run Bash command"
+    let notificationType: String? // Notification only: "permission_prompt", "idle_prompt", etc.
 
     init?(json: [String: Any]) {
         guard let name = json["hook_event_name"] as? String else { return nil }
         self.name = name
         self.sessionID = json["session_id"] as? String
         self.toolName = json["tool_name"] as? String
+        self.message = json["message"] as? String
+        self.notificationType = json["notification_type"] as? String
         let pane = json["tmux_pane"] as? String
         self.tmuxPane = (pane?.isEmpty ?? true) ? nil : pane
     }

@@ -8,11 +8,36 @@ final class SessionChildDelegate: NSObject, NSApplicationDelegate {
     private let port: UInt16
     private let dockIcon = DockIconController()
     private var server: HookServer?
-    private var tmuxPane: String? // learned from SessionStart; needed later to send a reply via `tmux send-keys`
+    private var tmuxPane: String? // learned from SessionStart; needed to send a reply via `tmux send-keys`
+    private var pendingQuestion: String = "Claude is waiting for your input."
+    private lazy var replyPanel = ReplyPanelController { [weak self] text in
+        self?.submitReply(text)
+    }
 
     init(sessionID: String, port: UInt16) {
         self.sessionID = sessionID
         self.port = port
+    }
+
+    /// Clicking the Dock icon while there are no visible windows routes here.
+    /// Only pops the reply panel while actually awaiting input — otherwise a
+    /// click just activates the (windowless) app, same as any other Dock icon.
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        guard dockIcon.currentState == .awaitingInput else { return true }
+        replyPanel.show(question: pendingQuestion)
+        return true
+    }
+
+    private func submitReply(_ text: String) {
+        guard let pane = tmuxPane else {
+            let alert = NSAlert()
+            alert.messageText = "Can't deliver reply"
+            alert.informativeText = "This session isn't running inside tmux, so Dockling has no terminal pane to send the reply to."
+            alert.runModal()
+            return
+        }
+        fputs("[dockling] session \(sessionID) sending reply to pane \(pane)\n", stderr)
+        TmuxReply.send(text: text, toPane: pane)
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -43,6 +68,7 @@ final class SessionChildDelegate: NSObject, NSApplicationDelegate {
         case "TaskCompleted":
             dockIcon.apply(.eureka)
         case "Notification":
+            pendingQuestion = event.message ?? "Claude is waiting for your input."
             dockIcon.apply(.awaitingInput)
         case "Stop", "StopFailure":
             dockIcon.apply(.idle)

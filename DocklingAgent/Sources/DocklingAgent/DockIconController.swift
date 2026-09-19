@@ -7,7 +7,7 @@ import AppKit
 /// recently requested during a hold wins once it expires; nothing queues up.
 final class DockIconController {
     private var cache: [DockState: NSImage] = [:]
-    private var currentState: DockState?
+    private(set) var currentState: DockState?
     private var stateAppliedAt: Date = .distantPast
     private var pendingWorkItem: DispatchWorkItem?
 
