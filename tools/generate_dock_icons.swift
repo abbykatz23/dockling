@@ -1,10 +1,12 @@
-// Builds the live per-state Dock tile PNGs from real-alpha source art
-// (dockling.png / thinking_dockling.png — no chroma-keying needed, unlike the
-// old crayon-JPEG pipeline these replace). Normalizes each source onto the
-// same canvas size with the same fit-to-bbox scaling, so swapping states
-// doesn't visually jump per DOCKLING_SPEC.md's Dock-tile art requirements.
+// Builds the live per-state Dock tile PNGs from the duck source art.
+// Most sources are already real-alpha PNGs (dockling.png, thinking_dockling.png,
+// eureka_dockling.png). front_dockling.jpg is a JPEG with a checkerboard
+// pattern baked into its pixels instead of real transparency, so it goes
+// through keyCheckerboard() first. Every source then gets cropped to its
+// content bounding box and normalized onto the same canvas size, so swapping
+// states doesn't visually jump per DOCKLING_SPEC.md's Dock-tile art requirements.
 //
-// Usage: swift tools/generate_dock_icons.swift <dir-with-dockling.png-and-thinking_dockling.png> <output-dir>
+// Usage: swift tools/generate_dock_icons.swift <source-dir> <output-dir>
 
 import AppKit
 
@@ -18,16 +20,16 @@ let outputDir = args[2]
 let canvasSize = 256
 let margin = 20 // px of padding around the duck within the canvas
 
-/// Loads a PNG and crops it tightly to its alpha bounding box, via a manual
-/// row-by-row byte copy rather than CGImage.cropping(to:) — that API's
-/// coordinate origin doesn't match a top-down raw pixel buffer, which
-/// previously produced a mis-cropped (bottom-clipped) image here.
-func loadCroppedImage(_ path: String) -> CGImage {
+func loadCGImage(_ path: String) -> CGImage {
     guard let source = NSImage(contentsOfFile: path),
-          let full = source.cgImage(forProposedRect: nil, context: nil, hints: nil) else {
+          let image = source.cgImage(forProposedRect: nil, context: nil, hints: nil) else {
         fatalError("could not load \(path)")
     }
-    let width = full.width, height = full.height
+    return image
+}
+
+func rgbaBuffer(_ image: CGImage) -> (pixels: [UInt8], width: Int, height: Int, colorSpace: CGColorSpace) {
+    let width = image.width, height = image.height
     var pixels = [UInt8](repeating: 0, count: width * height * 4)
     let colorSpace = CGColorSpaceCreateDeviceRGB()
     guard let ctx = CGContext(data: &pixels, width: width, height: height, bitsPerComponent: 8,
@@ -35,7 +37,103 @@ func loadCroppedImage(_ path: String) -> CGImage {
                                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else {
         fatalError("could not create bitmap context")
     }
-    ctx.draw(full, in: CGRect(x: 0, y: 0, width: width, height: height))
+    ctx.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
+    return (pixels, width, height, colorSpace)
+}
+
+/// Keys out a checkerboard "transparency" pattern that got flattened into a
+/// JPEG's actual pixels (checker squares are ~grayscale; the artwork itself
+/// is colorful, or near-black for outlines) — flood-filled from the image
+/// border so only background connected to the edge is removed, then feathered
+/// for an anti-aliased edge instead of a jagged one. Same technique used for
+/// the original crayon-JPEG assets earlier in this project.
+func keyCheckerboard(_ image: CGImage) -> CGImage {
+    var (pixels, width, height, colorSpace) = rgbaBuffer(image)
+
+    func isCheckerBackground(at i: Int) -> Bool {
+        let r = Int(pixels[i]), g = Int(pixels[i + 1]), b = Int(pixels[i + 2])
+        let spread = max(r, g, b) - min(r, g, b)
+        return spread <= 6 && min(r, g, b) >= 150 // grayscale AND light — excludes the near-black outline
+    }
+
+    var isBackground = [Bool](repeating: false, count: width * height)
+    var queue = [Int]()
+    func tryEnqueue(_ x: Int, _ y: Int) {
+        guard x >= 0, x < width, y >= 0, y < height else { return }
+        let idx = y * width + x
+        if isBackground[idx] { return }
+        if isCheckerBackground(at: idx * 4) {
+            isBackground[idx] = true
+            queue.append(idx)
+        }
+    }
+    for x in 0..<width { tryEnqueue(x, 0); tryEnqueue(x, height - 1) }
+    for y in 0..<height { tryEnqueue(0, y); tryEnqueue(width - 1, y) }
+    var head = 0
+    while head < queue.count {
+        let idx = queue[head]; head += 1
+        let x = idx % width, y = idx / width
+        tryEnqueue(x + 1, y); tryEnqueue(x - 1, y)
+        tryEnqueue(x, y + 1); tryEnqueue(x, y - 1)
+    }
+
+    var alphaMask = [Double](repeating: 0, count: width * height)
+    for idx in 0..<(width * height) { alphaMask[idx] = isBackground[idx] ? 0 : 255 }
+
+    func boxBlur(_ input: [Double], radius: Int) -> [Double] {
+        var horizontal = [Double](repeating: 0, count: width * height)
+        for y in 0..<height {
+            let rowStart = y * width
+            for x in 0..<width {
+                var sum = 0.0, count = 0.0
+                for dx in -radius...radius {
+                    let nx = x + dx
+                    guard nx >= 0, nx < width else { continue }
+                    sum += input[rowStart + nx]; count += 1
+                }
+                horizontal[rowStart + x] = sum / count
+            }
+        }
+        var vertical = [Double](repeating: 0, count: width * height)
+        for x in 0..<width {
+            for y in 0..<height {
+                var sum = 0.0, count = 0.0
+                for dy in -radius...radius {
+                    let ny = y + dy
+                    guard ny >= 0, ny < height else { continue }
+                    sum += horizontal[ny * width + x]; count += 1
+                }
+                vertical[y * width + x] = sum / count
+            }
+        }
+        return vertical
+    }
+    let smoothAlpha = boxBlur(alphaMask, radius: 2)
+
+    for idx in 0..<(width * height) {
+        let i = idx * 4
+        let a = smoothAlpha[idx] / 255.0
+        pixels[i] = UInt8(Double(pixels[i]) * a)
+        pixels[i + 1] = UInt8(Double(pixels[i + 1]) * a)
+        pixels[i + 2] = UInt8(Double(pixels[i + 2]) * a)
+        pixels[i + 3] = UInt8(smoothAlpha[idx])
+    }
+
+    guard let ctx = CGContext(data: &pixels, width: width, height: height, bitsPerComponent: 8,
+                               bytesPerRow: width * 4, space: colorSpace,
+                               bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue),
+          let result = ctx.makeImage() else {
+        fatalError("could not rebuild keyed image")
+    }
+    return result
+}
+
+/// Crops an already-transparent image tightly to its alpha bounding box, via
+/// a manual row-by-row byte copy rather than CGImage.cropping(to:) — that
+/// API's coordinate origin doesn't match a top-down raw pixel buffer, which
+/// previously produced a mis-cropped (bottom-clipped) image here.
+func cropToBBox(_ image: CGImage) -> CGImage {
+    let (pixels, width, height, colorSpace) = rgbaBuffer(image)
 
     var minX = width, maxX = 0, minY = height, maxY = 0
     for y in 0..<height {
@@ -46,7 +144,7 @@ func loadCroppedImage(_ path: String) -> CGImage {
             }
         }
     }
-    guard minX <= maxX, minY <= maxY else { fatalError("\(path) is fully transparent") }
+    guard minX <= maxX, minY <= maxY else { fatalError("image is fully transparent") }
 
     let cropWidth = maxX - minX
     let cropHeight = maxY - minY
@@ -65,7 +163,7 @@ func loadCroppedImage(_ path: String) -> CGImage {
                                       bytesPerRow: cropWidth * 4, space: colorSpace,
                                       bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue),
           let result = croppedCtx.makeImage() else {
-        fatalError("could not build cropped image for \(path)")
+        fatalError("could not build cropped image")
     }
     return result
 }
@@ -103,15 +201,17 @@ func renderOnCanvas(_ cropped: CGImage, outPath: String) {
 let fileManager = FileManager.default
 try? fileManager.createDirectory(atPath: outputDir, withIntermediateDirectories: true)
 
-let idleImage = loadCroppedImage((sourceDir as NSString).appendingPathComponent("dockling.png"))
-let thinkingImage = loadCroppedImage((sourceDir as NSString).appendingPathComponent("thinking_dockling.png"))
-let eurekaImage = loadCroppedImage((sourceDir as NSString).appendingPathComponent("eureka_dockling.png"))
+let idleImage = cropToBBox(loadCGImage((sourceDir as NSString).appendingPathComponent("dockling.png")))
+let thinkingImage = cropToBBox(loadCGImage((sourceDir as NSString).appendingPathComponent("thinking_dockling.png")))
+let eurekaImage = cropToBBox(loadCGImage((sourceDir as NSString).appendingPathComponent("eureka_dockling.png")))
+let frontImage = cropToBBox(keyCheckerboard(loadCGImage((sourceDir as NSString).appendingPathComponent("front_dockling.jpg"))))
 
 renderOnCanvas(idleImage, outPath: (outputDir as NSString).appendingPathComponent("idle.png"))
 renderOnCanvas(eurekaImage, outPath: (outputDir as NSString).appendingPathComponent("eureka.png"))
+renderOnCanvas(frontImage, outPath: (outputDir as NSString).appendingPathComponent("awaiting-input.png"))
 
-// Every "actively doing something" bucket shares the same thinking pose for
+// Every other "actively doing something" bucket shares the thinking pose for
 // now — per-bucket art is a later refinement once more poses exist.
-for state in ["bash", "edit", "search", "other", "awaiting-input", "error"] {
+for state in ["bash", "edit", "search", "other", "error"] {
     renderOnCanvas(thinkingImage, outPath: (outputDir as NSString).appendingPathComponent("\(state).png"))
 }

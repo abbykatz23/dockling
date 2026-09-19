@@ -10,6 +10,7 @@ final class SessionChildDelegate: NSObject, NSApplicationDelegate {
     private var server: HookServer?
     private var tmuxPane: String? // learned from SessionStart; needed to send a reply via `tmux send-keys`
     private var pendingQuestion: String = "Claude is waiting for your input."
+    private var lastToolDescription: String? // remembered from the most recent PreToolUse, since Notification's own message is generic
     private lazy var replyPanel = ReplyPanelController { [weak self] text in
         self?.submitReply(text)
     }
@@ -63,12 +64,17 @@ final class SessionChildDelegate: NSObject, NSApplicationDelegate {
         case "PreToolUse":
             let bucket = event.toolName.map(DockState.bucket(forToolName:)) ?? .other
             dockIcon.apply(bucket)
+            lastToolDescription = event.toolDescription
         case "PostToolUseFailure":
             dockIcon.apply(.error)
         case "TaskCompleted":
             dockIcon.apply(.eureka)
         case "Notification":
-            pendingQuestion = event.message ?? "Claude is waiting for your input."
+            if event.notificationType == "permission_prompt", let description = lastToolDescription {
+                pendingQuestion = description
+            } else {
+                pendingQuestion = event.message ?? "Claude is waiting for your input."
+            }
             dockIcon.apply(.awaitingInput)
         case "Stop", "StopFailure":
             dockIcon.apply(.idle)

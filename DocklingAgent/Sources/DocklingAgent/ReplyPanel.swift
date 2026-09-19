@@ -8,7 +8,16 @@ import AppKit
 /// screen, which is where the Dock usually is.
 final class ReplyPanelController: NSObject, NSTextFieldDelegate {
     private var panel: NSPanel?
+    private var activeField: NSTextField?
     private let onSubmit: (String) -> Void
+
+    private let width: CGFloat = 340
+    private let horizontalPadding: CGFloat = 16
+    private let verticalPadding: CGFloat = 16
+    private let labelFieldGap: CGFloat = 12
+    private let fieldHeight: CGFloat = 24
+    private let maxLabelHeight: CGFloat = 400 // clamp for pathologically long questions, rather than growing off-screen
+    private let questionFont = NSFont.systemFont(ofSize: 12)
 
     init(onSubmit: @escaping (String) -> Void) {
         self.onSubmit = onSubmit
@@ -17,8 +26,15 @@ final class ReplyPanelController: NSObject, NSTextFieldDelegate {
     func show(question: String) {
         panel?.close()
 
-        let width: CGFloat = 320
-        let height: CGFloat = 110
+        let labelWidth = width - horizontalPadding * 2
+        let unclampedHeight = ceil((question as NSString).boundingRect(
+            with: NSSize(width: labelWidth, height: .greatestFiniteMagnitude),
+            options: [.usesLineFragmentOrigin, .usesFontLeading],
+            attributes: [.font: questionFont]
+        ).height)
+        let labelHeight = min(unclampedHeight, maxLabelHeight)
+        let height = verticalPadding * 2 + labelHeight + labelFieldGap + fieldHeight
+
         let screenFrame = NSScreen.main?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
         let origin = NSPoint(x: screenFrame.midX - width / 2, y: screenFrame.minY + 16)
 
@@ -34,15 +50,16 @@ final class ReplyPanelController: NSObject, NSTextFieldDelegate {
         let contentView = NSView(frame: NSRect(x: 0, y: 0, width: width, height: height))
 
         let label = NSTextField(wrappingLabelWithString: question)
-        label.frame = NSRect(x: 16, y: height - 52, width: width - 32, height: 40)
-        label.font = .systemFont(ofSize: 12)
+        label.frame = NSRect(x: horizontalPadding, y: verticalPadding + fieldHeight + labelFieldGap,
+                              width: labelWidth, height: labelHeight)
+        label.font = questionFont
         label.textColor = .secondaryLabelColor
         label.isEditable = false
         label.isBordered = false
         label.drawsBackground = false
         contentView.addSubview(label)
 
-        let field = NSTextField(frame: NSRect(x: 16, y: 16, width: width - 32, height: 24))
+        let field = NSTextField(frame: NSRect(x: horizontalPadding, y: verticalPadding, width: labelWidth, height: fieldHeight))
         field.placeholderString = "Reply…"
         field.target = self
         field.action = #selector(submit(_:))
@@ -57,8 +74,6 @@ final class ReplyPanelController: NSObject, NSTextFieldDelegate {
         NSApp.activate(ignoringOtherApps: true)
         panel.makeFirstResponder(field)
     }
-
-    private var activeField: NSTextField?
 
     @objc private func submit(_ sender: NSTextField) {
         let text = sender.stringValue
