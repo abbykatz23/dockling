@@ -77,6 +77,14 @@ func keyCheckerboard(_ image: CGImage) -> CGImage {
         tryEnqueue(x, y + 1); tryEnqueue(x, y - 1)
     }
 
+    // Second pass: also key out isolated pockets of the same checker color
+    // that flood-fill couldn't reach — e.g. small fully-enclosed gaps (like
+    // the loops in the duck's hair), which are real background but sealed
+    // off from the border by a ring of outline.
+    for idx in 0..<(width * height) where !isBackground[idx] {
+        if isCheckerBackground(at: idx * 4) { isBackground[idx] = true }
+    }
+
     var alphaMask = [Double](repeating: 0, count: width * height)
     for idx in 0..<(width * height) { alphaMask[idx] = isBackground[idx] ? 0 : 255 }
 
