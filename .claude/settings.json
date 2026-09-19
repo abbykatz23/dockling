@@ -9,6 +9,9 @@
     "PostToolUseFailure": [
       { "hooks": [{ "type": "http", "url": "http://127.0.0.1:8765/hook" }] }
     ],
+    "TaskCompleted": [
+      { "hooks": [{ "type": "http", "url": "http://127.0.0.1:8765/hook" }] }
+    ],
     "Notification": [
       { "hooks": [{ "type": "http", "url": "http://127.0.0.1:8765/hook" }] }
     ],

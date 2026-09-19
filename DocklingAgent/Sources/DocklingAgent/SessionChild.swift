@@ -40,6 +40,8 @@ final class SessionChildDelegate: NSObject, NSApplicationDelegate {
             dockIcon.apply(bucket)
         case "PostToolUseFailure":
             dockIcon.apply(.error)
+        case "TaskCompleted":
+            dockIcon.apply(.eureka)
         case "Notification":
             dockIcon.apply(.awaitingInput)
         case "Stop", "StopFailure":

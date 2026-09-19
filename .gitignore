@@ -2,3 +2,4 @@
 .swiftpm/
 *.xcuserstate
 icons/AppIcon.iconset/
+.DS_Store
