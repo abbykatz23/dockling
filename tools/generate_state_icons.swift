@@ -38,24 +38,61 @@ func keyedDuckImage() -> CGImage {
 
     // Soft key on "whiteness" (min channel) rather than a hard per-channel cutoff,
     // since JPEG compression leaves the background a noisy off-white, not flat 255.
-    let opaqueBelow: Int = 195   // min(r,g,b) at/under this stays fully opaque
-    let transparentAbove: Int = 240 // min(r,g,b) at/over this goes fully transparent
+    let opaqueBelow: Int = 210      // min(r,g,b) at/under this stays fully opaque
+    let transparentAbove: Int = 246 // min(r,g,b) at/over this goes fully transparent
+    func minChannel(at i: Int) -> Int { min(Int(pixels[i]), Int(pixels[i + 1]), Int(pixels[i + 2])) }
+
     for i in stride(from: 0, to: pixels.count, by: 4) {
-        let r = Int(pixels[i]), g = Int(pixels[i + 1]), b = Int(pixels[i + 2])
-        let minChannel = min(r, g, b)
-        if minChannel >= transparentAbove {
-            pixels[i + 3] = 0
-        } else if minChannel > opaqueBelow {
-            let t = Double(minChannel - opaqueBelow) / Double(transparentAbove - opaqueBelow)
-            let newAlpha = Double(pixels[i + 3]) * (1.0 - t)
-            pixels[i + 3] = UInt8(max(0, min(255, newAlpha)))
+        let m = minChannel(at: i)
+        if m >= transparentAbove {
+            pixels[i] = 0; pixels[i + 1] = 0; pixels[i + 2] = 0; pixels[i + 3] = 0
+        } else if m > opaqueBelow {
+            let t = Double(m - opaqueBelow) / Double(transparentAbove - opaqueBelow)
+            let scale = 1.0 - t // also scale RGB to keep the buffer validly premultiplied
+            pixels[i] = UInt8(Double(pixels[i]) * scale)
+            pixels[i + 1] = UInt8(Double(pixels[i + 1]) * scale)
+            pixels[i + 2] = UInt8(Double(pixels[i + 2]) * scale)
+            pixels[i + 3] = UInt8(Double(pixels[i + 3]) * scale)
         }
     }
-    guard let outCtx = CGContext(data: &pixels, width: width, height: height, bitsPerComponent: 8,
-                                  bytesPerRow: width * 4, space: colorSpace,
-                                  bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue),
-          let result = outCtx.makeImage() else {
-        fatalError("could not rebuild keyed image")
+
+    // Trim to the duck's bounding box (with a small margin) so the large,
+    // near-white margin around it doesn't survive as a faint square halo.
+    var minX = width, maxX = 0, minY = height, maxY = 0
+    for y in 0..<height {
+        for x in 0..<width {
+            let i = (y * width + x) * 4
+            if pixels[i + 3] > 10 {
+                minX = min(minX, x); maxX = max(maxX, x)
+                minY = min(minY, y); maxY = max(maxY, y)
+            }
+        }
+    }
+    let margin = 12
+    minX = max(0, minX - margin); minY = max(0, minY - margin)
+    maxX = min(width - 1, maxX + margin); maxY = min(height - 1, maxY + margin)
+
+    // Copy the bbox sub-rectangle out by hand (row by row) rather than using
+    // CGImage.cropping(to:), whose coordinate origin doesn't match the raw
+    // top-down buffer here and was producing a mis-cropped image.
+    let cropWidth = maxX - minX
+    let cropHeight = maxY - minY
+    var cropped = [UInt8](repeating: 0, count: cropWidth * cropHeight * 4)
+    for row in 0..<cropHeight {
+        let srcRowStart = ((minY + row) * width + minX) * 4
+        let dstRowStart = row * cropWidth * 4
+        cropped.withUnsafeMutableBytes { dst in
+            pixels.withUnsafeBytes { src in
+                dst.baseAddress!.advanced(by: dstRowStart)
+                    .copyMemory(from: src.baseAddress!.advanced(by: srcRowStart), byteCount: cropWidth * 4)
+            }
+        }
+    }
+    guard let croppedCtx = CGContext(data: &cropped, width: cropWidth, height: cropHeight, bitsPerComponent: 8,
+                                      bytesPerRow: cropWidth * 4, space: colorSpace,
+                                      bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue),
+          let result = croppedCtx.makeImage() else {
+        fatalError("could not build cropped image")
     }
     return result
 }
