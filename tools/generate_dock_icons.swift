@@ -237,13 +237,23 @@ for color in colors {
     let frontRaw = loadCGImage(frontSourcePath)
     let frontImage = cropToBBox(color == "yellow" ? keyCheckerboard(frontRaw) : frontRaw)
 
+    // Unlike the other poses, "angry" keeps the color prefix even for yellow.
+    let angrySourcePath = (colorDir as NSString).appendingPathComponent("angry_\(color)_dockling.png")
+    let angryImage = cropToBBox(loadCGImage(angrySourcePath))
+
+    // Like "angry", "coding" keeps the color prefix for every color, yellow included.
+    let codingSourcePath = (colorDir as NSString).appendingPathComponent("coding_\(color)_dockling.png")
+    let codingImage = cropToBBox(loadCGImage(codingSourcePath))
+
     renderOnCanvas(idleImage, outPath: outPath("idle.png"))
     renderOnCanvas(eurekaImage, outPath: outPath("eureka.png"))
     renderOnCanvas(frontImage, outPath: outPath("awaiting-input.png"))
+    renderOnCanvas(angryImage, outPath: outPath("error.png"))
+    renderOnCanvas(codingImage, outPath: outPath("edit.png"))
 
     // Every other "actively doing something" bucket shares the thinking pose
     // for now — per-bucket art is a later refinement once more poses exist.
-    for state in ["bash", "edit", "search", "other", "error"] {
+    for state in ["bash", "search", "other"] {
         renderOnCanvas(thinkingImage, outPath: outPath("\(state).png"))
     }
 }
