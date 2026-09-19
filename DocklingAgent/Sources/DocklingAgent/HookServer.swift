@@ -99,11 +99,14 @@ struct HookEvent {
     let sessionID: String?
     let name: String
     let toolName: String?
+    let tmuxPane: String? // only present on the SessionStart command hook — see report_session_start.sh
 
     init?(json: [String: Any]) {
         guard let name = json["hook_event_name"] as? String else { return nil }
         self.name = name
         self.sessionID = json["session_id"] as? String
         self.toolName = json["tool_name"] as? String
+        let pane = json["tmux_pane"] as? String
+        self.tmuxPane = (pane?.isEmpty ?? true) ? nil : pane
     }
 }

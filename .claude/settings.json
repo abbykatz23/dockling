@@ -1,7 +1,7 @@
 {
   "hooks": {
     "SessionStart": [
-      { "hooks": [{ "type": "http", "url": "http://127.0.0.1:8765/hook" }] }
+      { "hooks": [{ "type": "command", "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/report_session_start.sh" }] }
     ],
     "PreToolUse": [
       { "hooks": [{ "type": "http", "url": "http://127.0.0.1:8765/hook" }] }

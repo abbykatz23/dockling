@@ -8,6 +8,7 @@ final class SessionChildDelegate: NSObject, NSApplicationDelegate {
     private let port: UInt16
     private let dockIcon = DockIconController()
     private var server: HookServer?
+    private var tmuxPane: String? // learned from SessionStart; needed later to send a reply via `tmux send-keys`
 
     init(sessionID: String, port: UInt16) {
         self.sessionID = sessionID
@@ -30,6 +31,10 @@ final class SessionChildDelegate: NSObject, NSApplicationDelegate {
         switch event.name {
         case "SessionStart":
             dockIcon.apply(.idle)
+            if let pane = event.tmuxPane {
+                tmuxPane = pane
+                fputs("[dockling] session \(sessionID) learned tmux pane \(pane)\n", stderr)
+            }
         case "PreToolUse":
             let bucket = event.toolName.map(DockState.bucket(forToolName:)) ?? .other
             dockIcon.apply(bucket)

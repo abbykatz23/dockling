@@ -7,9 +7,15 @@ import Foundation
 /// AppKit UI and never sets an activation policy, so it never appears in the
 /// Dock — only session children do, per DOCKLING_SPEC.md's multi-session design.
 final class Dispatcher {
-    private struct Session {
+    private final class Session {
         let process: Process
         let port: UInt16
+        var tmuxPane: String? // learned from the SessionStart command hook, if any
+
+        init(process: Process, port: UInt16) {
+            self.process = process
+            self.port = port
+        }
     }
 
     private var sessions: [String: Session] = [:]
@@ -45,6 +51,10 @@ final class Dispatcher {
 
         let session = sessions[sessionID] ?? spawnSession(sessionID: sessionID)
         guard let session else { return }
+        if let pane = event.tmuxPane {
+            session.tmuxPane = pane
+            fputs("[dockling] session \(sessionID) tmux pane -> \(pane)\n", stderr)
+        }
         forward(rawJSON: rawJSON, to: session.port, attemptsLeft: 5)
     }
 
