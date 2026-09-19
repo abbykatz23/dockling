@@ -1,0 +1,25 @@
+{
+  "hooks": {
+    "SessionStart": [
+      { "hooks": [{ "type": "http", "url": "http://127.0.0.1:8765/hook" }] }
+    ],
+    "PreToolUse": [
+      { "hooks": [{ "type": "http", "url": "http://127.0.0.1:8765/hook" }] }
+    ],
+    "PostToolUseFailure": [
+      { "hooks": [{ "type": "http", "url": "http://127.0.0.1:8765/hook" }] }
+    ],
+    "Notification": [
+      { "hooks": [{ "type": "http", "url": "http://127.0.0.1:8765/hook" }] }
+    ],
+    "Stop": [
+      { "hooks": [{ "type": "http", "url": "http://127.0.0.1:8765/hook" }] }
+    ],
+    "StopFailure": [
+      { "hooks": [{ "type": "http", "url": "http://127.0.0.1:8765/hook" }] }
+    ],
+    "SessionEnd": [
+      { "hooks": [{ "type": "http", "url": "http://127.0.0.1:8765/hook" }] }
+    ]
+  }
+}
