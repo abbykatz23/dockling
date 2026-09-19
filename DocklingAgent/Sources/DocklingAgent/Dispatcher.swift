@@ -55,7 +55,7 @@ final class Dispatcher {
             return
         }
 
-        let session = sessions[sessionID] ?? spawnSession(sessionID: sessionID)
+        let session = sessions[sessionID] ?? spawnSession(sessionID: sessionID, cwd: event.cwd)
         guard let session else { return }
         if let pane = event.tmuxPane {
             session.tmuxPane = pane
@@ -64,17 +64,19 @@ final class Dispatcher {
         forward(rawJSON: rawJSON, to: session.port, attemptsLeft: 5)
     }
 
-    private func spawnSession(sessionID: String) -> Session? {
+    private func spawnSession(sessionID: String, cwd: String?) -> Session? {
         guard let executablePath = Bundle.main.executablePath else {
             fputs("[dockling] could not resolve own executable path to spawn session child\n", stderr)
             return nil
         }
         let port = allocatePort()
         let color = allocateColor()
+        let name = projectName(fromCwd: cwd)
+        let launchPath = appBundleExecutable(realPath: executablePath, projectName: name)
 
         let process = Process()
-        process.executableURL = URL(fileURLWithPath: executablePath)
-        process.arguments = ["--session", sessionID, "--port", "\(port)", "--color", color]
+        process.executableURL = URL(fileURLWithPath: launchPath)
+        process.arguments = ["--session", sessionID, "--port", "\(port)", "--color", color, "--name", name]
         process.terminationHandler = { [weak self] _ in
             DispatchQueue.main.async {
                 self?.sessions.removeValue(forKey: sessionID)
@@ -92,6 +94,61 @@ final class Dispatcher {
         let session = Session(process: process, port: port, color: color)
         sessions[sessionID] = session
         return session
+    }
+
+    private func projectName(fromCwd cwd: String?) -> String {
+        guard let cwd, !cwd.isEmpty else { return "DocklingAgent" }
+        let name = (cwd as NSString).lastPathComponent
+        return name.isEmpty ? "DocklingAgent" : name
+    }
+
+    /// Dock/Launch Services identity (the hover tooltip, in particular) is
+    /// driven by real bundle metadata (Info.plist's CFBundleName), read at
+    /// launch — renaming the process after the fact (via a symlink, or via
+    /// ProcessInfo.processName) doesn't reach it; both were tried and
+    /// confirmed not to change the tooltip. So this synthesizes a minimal,
+    /// throwaway .app bundle per project, with the executable inside it just
+    /// a symlink to the real binary, and launches that instead.
+    private func appBundleExecutable(realPath: String, projectName: String) -> String {
+        let bundlesDir = (NSTemporaryDirectory() as NSString).appendingPathComponent("dockling-agent-bundles")
+        let bundlePath = (bundlesDir as NSString).appendingPathComponent("\(projectName).app")
+        let contentsDir = (bundlePath as NSString).appendingPathComponent("Contents")
+        let macOSDir = (contentsDir as NSString).appendingPathComponent("MacOS")
+        let executablePath = (macOSDir as NSString).appendingPathComponent("DocklingAgent")
+        let infoPlistPath = (contentsDir as NSString).appendingPathComponent("Info.plist")
+
+        let fileManager = FileManager.default
+        try? fileManager.createDirectory(atPath: macOSDir, withIntermediateDirectories: true)
+
+        if let existingTarget = try? fileManager.destinationOfSymbolicLink(atPath: executablePath), existingTarget != realPath {
+            try? fileManager.removeItem(atPath: executablePath) // stale, e.g. from a rebuilt binary
+        }
+        if !fileManager.fileExists(atPath: executablePath) {
+            do {
+                try fileManager.createSymbolicLink(atPath: executablePath, withDestinationPath: realPath)
+            } catch {
+                fputs("[dockling] could not create app bundle for \(projectName), falling back to real path: \(error)\n", stderr)
+                return realPath
+            }
+        }
+
+        let bundleID = "com.dockling.session." + projectName.lowercased()
+            .map { $0.isLetter || $0.isNumber ? $0 : "-" }
+            .reduce(into: "") { $0.append($1) }
+        let info: [String: Any] = [
+            "CFBundleName": projectName,
+            "CFBundleDisplayName": projectName,
+            "CFBundleExecutable": "DocklingAgent",
+            "CFBundleIdentifier": bundleID,
+            "CFBundlePackageType": "APPL",
+            "CFBundleShortVersionString": "1.0",
+            "CFBundleVersion": "1",
+        ]
+        if let plistData = try? PropertyListSerialization.data(fromPropertyList: info, format: .xml, options: 0) {
+            try? plistData.write(to: URL(fileURLWithPath: infoPlistPath))
+        }
+
+        return executablePath
     }
 
     private func allocatePort() -> UInt16 {

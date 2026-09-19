@@ -103,6 +103,7 @@ struct HookEvent {
     let tmuxPane: String? // only present on the SessionStart command hook — see report_session_start.sh
     let message: String? // Notification only: a generic string like "Claude needs your permission" — not the specific question
     let notificationType: String? // Notification only: "permission_prompt", "idle_prompt", etc.
+    let cwd: String? // present on every event; used to name the Dock tile after the project
 
     /// A human-readable description of what a tool call is about to do, built
     /// from tool_name + tool_input. Notification events don't carry this
@@ -143,6 +144,7 @@ struct HookEvent {
         self.toolInput = json["tool_input"] as? [String: Any]
         self.message = json["message"] as? String
         self.notificationType = json["notification_type"] as? String
+        self.cwd = json["cwd"] as? String
         let pane = json["tmux_pane"] as? String
         self.tmuxPane = (pane?.isEmpty ?? true) ? nil : pane
     }

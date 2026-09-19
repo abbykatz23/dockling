@@ -10,7 +10,8 @@ func argValue(_ flag: String) -> String? {
 
 if let sessionID = argValue("--session"), let portString = argValue("--port"), let port = UInt16(portString) {
     let color = argValue("--color") ?? "yellow"
-    runSessionChild(sessionID: sessionID, port: port, color: color)
+    let name = argValue("--name") ?? "DocklingAgent"
+    runSessionChild(sessionID: sessionID, port: port, color: color, name: name)
 } else {
     runDispatcher(port: hookPort)
 }

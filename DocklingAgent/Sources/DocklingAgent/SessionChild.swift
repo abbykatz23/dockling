@@ -88,7 +88,12 @@ final class SessionChildDelegate: NSObject, NSApplicationDelegate {
     }
 }
 
-func runSessionChild(sessionID: String, port: UInt16, color: String) -> Never {
+func runSessionChild(sessionID: String, port: UInt16, color: String, name: String) -> Never {
+    // Must happen before NSApplication.shared is touched — this is what the
+    // Dock's hover tooltip actually shows for a bundle-less app (there's no
+    // Info.plist CFBundleName to override otherwise).
+    ProcessInfo.processInfo.processName = name
+
     let delegate = SessionChildDelegate(sessionID: sessionID, port: port, color: color)
     NSApplication.shared.delegate = delegate
     NSApplication.shared.run()
