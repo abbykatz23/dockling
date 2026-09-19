@@ -6,7 +6,7 @@ import AppKit
 final class SessionChildDelegate: NSObject, NSApplicationDelegate {
     private let sessionID: String
     private let port: UInt16
-    private let dockIcon = DockIconController()
+    private let dockIcon: DockIconController
     private var server: HookServer?
     private var tmuxPane: String? // learned from SessionStart; needed to send a reply via `tmux send-keys`
     private var pendingQuestion: String = "Claude is waiting for your input."
@@ -15,9 +15,10 @@ final class SessionChildDelegate: NSObject, NSApplicationDelegate {
         self?.submitReply(text)
     }
 
-    init(sessionID: String, port: UInt16) {
+    init(sessionID: String, port: UInt16, color: String) {
         self.sessionID = sessionID
         self.port = port
+        self.dockIcon = DockIconController(color: color)
     }
 
     /// Clicking the Dock icon while there are no visible windows routes here.
@@ -87,8 +88,8 @@ final class SessionChildDelegate: NSObject, NSApplicationDelegate {
     }
 }
 
-func runSessionChild(sessionID: String, port: UInt16) -> Never {
-    let delegate = SessionChildDelegate(sessionID: sessionID, port: port)
+func runSessionChild(sessionID: String, port: UInt16, color: String) -> Never {
+    let delegate = SessionChildDelegate(sessionID: sessionID, port: port, color: color)
     NSApplication.shared.delegate = delegate
     NSApplication.shared.run()
     exit(0)

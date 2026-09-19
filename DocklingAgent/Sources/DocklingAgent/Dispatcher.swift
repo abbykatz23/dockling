@@ -7,14 +7,20 @@ import Foundation
 /// AppKit UI and never sets an activation policy, so it never appears in the
 /// Dock — only session children do, per DOCKLING_SPEC.md's multi-session design.
 final class Dispatcher {
+    // Must stay in sync with the `colors` list in tools/generate_dock_icons.swift,
+    // which is what actually produces Resources/<color>/*.png for each of these.
+    private static let colors = ["yellow", "blue", "babyblue", "gray", "green", "lavender", "orange", "pink", "tan"]
+
     private final class Session {
         let process: Process
         let port: UInt16
+        let color: String
         var tmuxPane: String? // learned from the SessionStart command hook, if any
 
-        init(process: Process, port: UInt16) {
+        init(process: Process, port: UInt16, color: String) {
             self.process = process
             self.port = port
+            self.color = color
         }
     }
 
@@ -64,10 +70,11 @@ final class Dispatcher {
             return nil
         }
         let port = allocatePort()
+        let color = allocateColor()
 
         let process = Process()
         process.executableURL = URL(fileURLWithPath: executablePath)
-        process.arguments = ["--session", sessionID, "--port", "\(port)"]
+        process.arguments = ["--session", sessionID, "--port", "\(port)", "--color", color]
         process.terminationHandler = { [weak self] _ in
             DispatchQueue.main.async {
                 self?.sessions.removeValue(forKey: sessionID)
@@ -81,8 +88,8 @@ final class Dispatcher {
             return nil
         }
 
-        fputs("[dockling] spawned session \(sessionID) on port \(port)\n", stderr)
-        let session = Session(process: process, port: port)
+        fputs("[dockling] spawned session \(sessionID) on port \(port), color \(color)\n", stderr)
+        let session = Session(process: process, port: port, color: color)
         sessions[sessionID] = session
         return session
     }
@@ -92,6 +99,16 @@ final class Dispatcher {
         while usedPorts.contains(nextPort) { nextPort += 1 }
         defer { nextPort += 1 }
         return nextPort
+    }
+
+    /// Random, avoiding colors already used by another currently-active
+    /// session. Falls back to a fully random pick (duplicates allowed) once
+    /// the pool is exhausted — the decided behavior from DOCKLING_SPEC.md's
+    /// character-assignment section.
+    private func allocateColor() -> String {
+        let usedColors = Set(sessions.values.map(\.color))
+        let available = Self.colors.filter { !usedColors.contains($0) }
+        return (available.isEmpty ? Self.colors : available).randomElement()!
     }
 
     /// Freshly spawned children need a beat to bind their listener, so a

@@ -1,24 +1,30 @@
-// Builds the live per-state Dock tile PNGs from the duck source art.
-// Most sources are already real-alpha PNGs (dockling.png, thinking_dockling.png,
-// eureka_dockling.png). front_dockling.jpg is a JPEG with a checkerboard
-// pattern baked into its pixels instead of real transparency, so it goes
-// through keyCheckerboard() first. Every source then gets cropped to its
-// content bounding box and normalized onto the same canvas size, so swapping
-// states doesn't visually jump per DOCKLING_SPEC.md's Dock-tile art requirements.
+// Builds the live per-state, per-color Dock tile PNGs from the duck source
+// art in icons/<color>/. Most sources are already real-alpha PNGs; only
+// yellow's front_dockling.jpg is a JPEG with a checkerboard pattern baked
+// into its pixels instead of real transparency, so it goes through
+// keyCheckerboard() first (the other colors' front poses are already clean
+// PNGs). Every source then gets cropped to its content bounding box and
+// normalized onto the same canvas size, so swapping states or colors doesn't
+// visually jump per DOCKLING_SPEC.md's Dock-tile art requirements.
 //
-// Usage: swift tools/generate_dock_icons.swift <source-dir> <output-dir>
+// Usage: swift tools/generate_dock_icons.swift <icons-dir> <resources-output-dir>
 
 import AppKit
 
 let args = CommandLine.arguments
 guard args.count == 3 else {
-    print("Usage: swift generate_dock_icons.swift <source-dir> <output-dir>")
+    print("Usage: swift generate_dock_icons.swift <icons-dir> <resources-output-dir>")
     exit(1)
 }
-let sourceDir = args[1]
-let outputDir = args[2]
+let iconsDir = args[1]
+let outputRoot = args[2]
 let canvasSize = 256
 let margin = 20 // px of padding around the duck within the canvas
+
+// Every character color Dockling can assign to a session. Filenames follow
+// "<color>_dockling.png" etc., except yellow, which keeps its original
+// unprefixed names since it's the default/reference art.
+let colors = ["yellow", "blue", "babyblue", "gray", "green", "lavender", "orange", "pink", "tan"]
 
 func loadCGImage(_ path: String) -> CGImage {
     guard let source = NSImage(contentsOfFile: path),
@@ -207,19 +213,37 @@ func renderOnCanvas(_ cropped: CGImage, outPath: String) {
 }
 
 let fileManager = FileManager.default
-try? fileManager.createDirectory(atPath: outputDir, withIntermediateDirectories: true)
 
-let idleImage = cropToBBox(loadCGImage((sourceDir as NSString).appendingPathComponent("dockling.png")))
-let thinkingImage = cropToBBox(loadCGImage((sourceDir as NSString).appendingPathComponent("thinking_dockling.png")))
-let eurekaImage = cropToBBox(loadCGImage((sourceDir as NSString).appendingPathComponent("eureka_dockling.png")))
-let frontImage = cropToBBox(keyCheckerboard(loadCGImage((sourceDir as NSString).appendingPathComponent("front_dockling.jpg"))))
+for color in colors {
+    let colorDir = (iconsDir as NSString).appendingPathComponent(color)
+    let outputDir = (outputRoot as NSString).appendingPathComponent(color)
+    try? fileManager.createDirectory(atPath: outputDir, withIntermediateDirectories: true)
 
-renderOnCanvas(idleImage, outPath: (outputDir as NSString).appendingPathComponent("idle.png"))
-renderOnCanvas(eurekaImage, outPath: (outputDir as NSString).appendingPathComponent("eureka.png"))
-renderOnCanvas(frontImage, outPath: (outputDir as NSString).appendingPathComponent("awaiting-input.png"))
+    func sourcePath(_ suffix: String) -> String {
+        let name = color == "yellow" ? suffix : "\(color)_\(suffix)"
+        return (colorDir as NSString).appendingPathComponent(name)
+    }
+    func outPath(_ name: String) -> String {
+        (outputDir as NSString).appendingPathComponent(name)
+    }
 
-// Every other "actively doing something" bucket shares the thinking pose for
-// now — per-bucket art is a later refinement once more poses exist.
-for state in ["bash", "edit", "search", "other", "error"] {
-    renderOnCanvas(thinkingImage, outPath: (outputDir as NSString).appendingPathComponent("\(state).png"))
+    let idleImage = cropToBBox(loadCGImage(sourcePath("dockling.png")))
+    let thinkingImage = cropToBBox(loadCGImage(sourcePath("thinking_dockling.png")))
+    let eurekaImage = cropToBBox(loadCGImage(sourcePath("eureka_dockling.png")))
+
+    let frontSourcePath = color == "yellow"
+        ? (colorDir as NSString).appendingPathComponent("front_dockling.jpg")
+        : (colorDir as NSString).appendingPathComponent("front_\(color)_dockling.png")
+    let frontRaw = loadCGImage(frontSourcePath)
+    let frontImage = cropToBBox(color == "yellow" ? keyCheckerboard(frontRaw) : frontRaw)
+
+    renderOnCanvas(idleImage, outPath: outPath("idle.png"))
+    renderOnCanvas(eurekaImage, outPath: outPath("eureka.png"))
+    renderOnCanvas(frontImage, outPath: outPath("awaiting-input.png"))
+
+    // Every other "actively doing something" bucket shares the thinking pose
+    // for now — per-bucket art is a later refinement once more poses exist.
+    for state in ["bash", "edit", "search", "other", "error"] {
+        renderOnCanvas(thinkingImage, outPath: outPath("\(state).png"))
+    }
 }

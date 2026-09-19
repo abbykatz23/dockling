@@ -16,11 +16,11 @@ final class DockIconController {
         .error: 1.5,
     ]
 
-    init() {
+    init(color: String) {
         for state in DockState.allCases {
-            guard let url = Bundle.module.url(forResource: state.rawValue, withExtension: "png", subdirectory: "Resources"),
+            guard let url = Bundle.module.url(forResource: state.rawValue, withExtension: "png", subdirectory: "Resources/\(color)"),
                   let image = NSImage(contentsOf: url) else {
-                fputs("warning: missing icon asset for state \(state.rawValue)\n", stderr)
+                fputs("warning: missing icon asset for state \(state.rawValue) (color \(color))\n", stderr)
                 continue
             }
             cache[state] = image
