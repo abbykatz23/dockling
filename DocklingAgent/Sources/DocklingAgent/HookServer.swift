@@ -2,15 +2,16 @@ import Foundation
 import Network
 
 /// Minimal local HTTP server that receives Claude Code's `type: "http"` hook
-/// POSTs and turns each one into a DockState update. Phase 0 only: single
-/// session, no auth token, no persistence — see DOCKLING_SPEC.md Security section
-/// for what a real build needs before this listens on anything but localhost.
+/// POSTs. Used both by the dispatcher (well-known port, all sessions) and by
+/// each per-session child (its own ephemeral port, forwarded events only).
+/// No auth token, no persistence — see DOCKLING_SPEC.md Security section for
+/// what a real build needs before this listens on anything but localhost.
 final class HookServer {
     private let port: NWEndpoint.Port
     private var listener: NWListener?
-    private let onEvent: (HookEvent) -> Void
+    private let onEvent: ([String: Any], HookEvent) -> Void
 
-    init(port: UInt16, onEvent: @escaping (HookEvent) -> Void) {
+    init(port: UInt16, onEvent: @escaping ([String: Any], HookEvent) -> Void) {
         self.port = NWEndpoint.Port(rawValue: port)!
         self.onEvent = onEvent
     }
@@ -41,10 +42,10 @@ final class HookServer {
             connection.receive(minimumIncompleteLength: 1, maximumLength: 65536) { data, _, isComplete, error in
                 if let data, !data.isEmpty {
                     buffer.append(data)
-                    if let event = Self.parseCompleteRequest(buffer) {
+                    if let json = Self.parseCompleteRequest(buffer) {
                         self.respondOK(connection)
-                        if let parsed = HookEvent(json: event) {
-                            self.onEvent(parsed)
+                        if let parsed = HookEvent(json: json) {
+                            self.onEvent(json, parsed)
                         }
                         return
                     }
