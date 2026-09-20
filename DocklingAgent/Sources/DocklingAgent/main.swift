@@ -1,6 +1,7 @@
 import Foundation
 
 let hookPort: UInt16 = 8765
+let sharedSecret = DocklingSecret.load()
 
 let arguments = CommandLine.arguments
 func argValue(_ flag: String) -> String? {

@@ -4,15 +4,19 @@ import Network
 /// Minimal local HTTP server that receives Claude Code's `type: "http"` hook
 /// POSTs. Used both by the dispatcher (well-known port, all sessions) and by
 /// each per-session child (its own ephemeral port, forwarded events only).
-/// No auth token, no persistence — see DOCKLING_SPEC.md Security section for
-/// what a real build needs before this listens on anything but localhost.
+/// Requires a `?token=` query param matching the per-install secret (see
+/// Secret.swift) on every request — otherwise any other local process could
+/// POST a fake event or trigger a fake reply popover (DOCKLING_SPEC.md's
+/// "local channel auth" requirement).
 final class HookServer {
     private let port: NWEndpoint.Port
+    private let expectedToken: String
     private var listener: NWListener?
     private let onEvent: ([String: Any], HookEvent) -> Void
 
-    init(port: UInt16, onEvent: @escaping ([String: Any], HookEvent) -> Void) {
+    init(port: UInt16, expectedToken: String, onEvent: @escaping ([String: Any], HookEvent) -> Void) {
         self.port = NWEndpoint.Port(rawValue: port)!
+        self.expectedToken = expectedToken
         self.onEvent = onEvent
     }
 
@@ -42,10 +46,15 @@ final class HookServer {
             connection.receive(minimumIncompleteLength: 1, maximumLength: 65536) { data, _, isComplete, error in
                 if let data, !data.isEmpty {
                     buffer.append(data)
-                    if let json = Self.parseCompleteRequest(buffer) {
-                        self.respondOK(connection)
-                        if let parsed = HookEvent(json: json) {
-                            self.onEvent(json, parsed)
+                    if let request = Self.parseCompleteRequest(buffer) {
+                        guard request.token == self.expectedToken else {
+                            fputs("[dockling] rejecting request on port \(self.port.rawValue): missing/invalid token\n", stderr)
+                            self.respond(connection, status: "401 Unauthorized")
+                            return
+                        }
+                        self.respond(connection, status: "200 OK")
+                        if let parsed = HookEvent(json: request.json) {
+                            self.onEvent(request.json, parsed)
                         }
                         return
                     }
@@ -60,15 +69,22 @@ final class HookServer {
         receiveMore()
     }
 
-    /// Returns the parsed JSON body once the full HTTP request (headers + body per
-    /// Content-Length) has arrived, else nil to keep reading.
-    private static func parseCompleteRequest(_ buffer: Data) -> [String: Any]? {
+    private struct ParsedRequest {
+        let token: String?
+        let json: [String: Any]
+    }
+
+    /// Returns the parsed request (query-string token + JSON body) once the
+    /// full HTTP request (headers + body per Content-Length) has arrived,
+    /// else nil to keep reading.
+    private static func parseCompleteRequest(_ buffer: Data) -> ParsedRequest? {
         guard let headerEnd = buffer.range(of: Data("\r\n\r\n".utf8)) else { return nil }
         let headerData = buffer[..<headerEnd.lowerBound]
         guard let headerString = String(data: headerData, encoding: .utf8) else { return nil }
+        let headerLines = headerString.components(separatedBy: "\r\n")
 
         var contentLength = 0
-        for line in headerString.components(separatedBy: "\r\n") {
+        for line in headerLines {
             let lower = line.lowercased()
             if lower.hasPrefix("content-length:") {
                 let value = line.split(separator: ":", maxSplits: 1)[1].trimmingCharacters(in: .whitespaces)
@@ -76,19 +92,21 @@ final class HookServer {
             }
         }
 
+        let requestLineParts = headerLines.first?.split(separator: " ") ?? []
+        let path = requestLineParts.count >= 2 ? String(requestLineParts[1]) : ""
+        let token = URLComponents(string: path)?.queryItems?.first(where: { $0.name == "token" })?.value
+
         let bodyStart = headerEnd.upperBound
         let body = buffer[bodyStart...]
         guard body.count >= contentLength else { return nil }
         let exactBody = body.prefix(contentLength)
-        guard let json = try? JSONSerialization.jsonObject(with: Data(exactBody)) as? [String: Any] else {
-            return [:]
-        }
-        return json
+        let parsedJSON = (try? JSONSerialization.jsonObject(with: Data(exactBody)) as? [String: Any]) ?? nil
+        return ParsedRequest(token: token, json: parsedJSON ?? [:])
     }
 
-    private func respondOK(_ connection: NWConnection) {
+    private func respond(_ connection: NWConnection, status: String) {
         let body = "{}"
-        let response = "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: \(body.utf8.count)\r\nConnection: close\r\n\r\n\(body)"
+        let response = "HTTP/1.1 \(status)\r\nContent-Type: application/json\r\nContent-Length: \(body.utf8.count)\r\nConnection: close\r\n\r\n\(body)"
         connection.send(content: response.data(using: .utf8), completion: .contentProcessed { _ in
             connection.cancel()
         })

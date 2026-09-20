@@ -47,7 +47,7 @@ final class SessionChildDelegate: NSObject, NSApplicationDelegate {
         dockIcon.apply(.idle)
         fputs("[dockling] session \(sessionID) child started on port \(port)\n", stderr)
 
-        let server = HookServer(port: port) { [weak self] _, event in
+        let server = HookServer(port: port, expectedToken: sharedSecret) { [weak self] _, event in
             self?.handle(event)
         }
         server.start()
