@@ -195,6 +195,7 @@ final class Dispatcher {
 func runDispatcher(port: UInt16) -> Never {
     let dispatcher = Dispatcher()
     dispatcher.start(onPort: port)
+
     fputs("[dockling] dispatcher running, well-known port \(port)\n", stderr)
     dispatchMain()
 }

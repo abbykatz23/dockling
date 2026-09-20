@@ -15,7 +15,7 @@ final class SessionChildDelegate: NSObject, NSApplicationDelegate {
         self?.submitReply(text)
     }
 
-    init(sessionID: String, port: UInt16, color: String) {
+    init(sessionID: String, port: UInt16, color: String, name: String) {
         self.sessionID = sessionID
         self.port = port
         self.dockIcon = DockIconController(color: color)
@@ -26,7 +26,7 @@ final class SessionChildDelegate: NSObject, NSApplicationDelegate {
     /// click just activates the (windowless) app, same as any other Dock icon.
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
         guard dockIcon.currentState == .awaitingInput else { return true }
-        replyPanel.show(question: pendingQuestion)
+        replyPanel.show(question: pendingQuestion, near: NSEvent.mouseLocation)
         return true
     }
 
@@ -94,7 +94,7 @@ func runSessionChild(sessionID: String, port: UInt16, color: String, name: Strin
     // Info.plist CFBundleName to override otherwise).
     ProcessInfo.processInfo.processName = name
 
-    let delegate = SessionChildDelegate(sessionID: sessionID, port: port, color: color)
+    let delegate = SessionChildDelegate(sessionID: sessionID, port: port, color: color, name: name)
     NSApplication.shared.delegate = delegate
     NSApplication.shared.run()
     exit(0)
