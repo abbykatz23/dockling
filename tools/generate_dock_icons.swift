@@ -242,7 +242,7 @@ let fileManager = FileManager.default
 let poseForState: [(output: String, adjective: String)] = [
     ("idle", "idle"),
     ("bash", "construction"),
-    ("search", "thinking"),
+    ("search", "detective"),
     ("other", "thinking"),
     ("eureka", "eureka"),
     ("awaiting-input", "front"),
