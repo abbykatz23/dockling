@@ -15,13 +15,12 @@ See [DOCKLING_SPEC.md](./DOCKLING_SPEC.md) for the full design rationale. This R
 ## Requirements
 
 - macOS
-- Swift toolchain (Xcode Command Line Tools is enough — `xcode-select --install`)
-- `jq`, `curl`, `openssl` (all standard on macOS, or `brew install jq`)
+- Swift toolchain (Xcode Command Line Tools is enough — `xcode-select --install`) — this is the *only* dependency; setup doesn't need jq, openssl, or anything else installed first.
 - `tmux`, only if you want the reply-from-Dock feature (`brew install tmux`)
 
 ## Setup
 
-1. **Register the hooks.** This wires Dockling into `~/.claude/settings.json` so *every* Claude Code session on your machine reports its state — not just sessions run from inside this repo. It's a clean merge: your existing hooks (for any event, any tool) are left untouched, and re-running this is always safe (it won't create duplicates).
+1. **Build and register the hooks.** This wires Dockling into `~/.claude/settings.json` so *every* Claude Code session on your machine reports its state — not just sessions run from inside this repo. It's a clean merge: your existing hooks (for any event, any tool) are left untouched, and re-running this is always safe (it won't create duplicates).
 
    ```sh
    ./install/install.sh
@@ -29,15 +28,17 @@ See [DOCKLING_SPEC.md](./DOCKLING_SPEC.md) for the full design rationale. This R
 
    This also generates a per-install secret at `~/.dockling/secret`, required on every hook request so no other local process can spoof an event or pop a fake reply panel.
 
-2. **Build and run the dispatcher.** This is the one long-lived process; it listens on port 8765 and spawns a child process (and Dock icon) per session.
+2. **Run the dispatcher.** This is the one long-lived process; it listens on port 8765 and spawns a child process (and Dock icon) per session.
 
    ```sh
-   cd DocklingAgent
-   swift build
-   .build/debug/DocklingAgent &
+   ./DocklingAgent/.build/release/DocklingAgent &
    ```
 
-   Keep it running (a login item / `launchd` agent is the natural next step here, not yet built — see [Known limitations](#known-limitations)).
+   Or set it up as a `launchd` agent so it starts automatically at login and restarts itself if it ever crashes:
+
+   ```sh
+   ./install/install_launchd.sh
+   ```
 
 3. **Start or continue any Claude Code session.** A duck appears in the Dock once the session's first hook fires (`SessionStart`, or the first tool call in some clients).
 
@@ -69,13 +70,12 @@ This doesn't apply to the dedicated Claude Code panel in VS Code (a webview, not
 - **Dispatcher** (`DocklingAgent` run with no args): the one stable process, bound to the well-known hook port. Never appears in the Dock itself. On each new `session_id`, spawns a child process and hands it a dynamically allocated port.
 - **Session child** (`DocklingAgent --session <id> --port <port> --color <color> --name <project>`): owns exactly one Dock icon (`NSApp.applicationIconImage`), launched through a synthesized per-project `.app` bundle so the Dock's hover tooltip shows the real project name. Exits when its session ends.
 - **Auth**: every hook request (both real Claude Code hooks and the dispatcher's internal forwards to a child) must carry `?token=<secret>` matching `~/.dockling/secret`, or it's rejected.
+- **Restart resilience**: the dispatcher persists its session table (pid/port/color per session) to `~/.dockling/sessions.json` and reconciles with it on startup — adopting still-running children instead of spawning duplicates, and dropping anything no longer alive. This is what makes the `launchd` `KeepAlive` restart-on-crash behavior safe.
 - **Reply delivery**: the reply panel anchors to wherever you actually clicked (`NSEvent.mouseLocation`), not to an Accessibility-API lookup of the icon's frame — the latter breaks with multiple displays, since macOS mirrors one Dock icon's position across every screen's Dock.
 
 ## Known limitations
 
-- Dev build only: no code signing, notarization, DMG, or Homebrew tap yet. Everything above runs from a local `swift build`.
-- No `launchd` agent yet, so the dispatcher needs to be started by hand each login.
-- The dispatcher doesn't persist its in-memory session table across its own restarts. Restarting it mid-session leaves that session's already-running duck as an orphan (still working, just no longer tracked) and spawns a fresh one on the next hook event. Harmless but untidy — avoid restarting the dispatcher while sessions are active if you can.
+- Dev build only: no code signing, notarization, DMG, or Homebrew tap yet — that needs an Apple Developer account. Everything above runs from a local `swift build`.
 - No telemetry of any kind (this is intentional, not a gap — see `DOCKLING_SPEC.md`).
 
 ## License
