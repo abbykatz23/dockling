@@ -1,11 +1,12 @@
 // Builds the live per-state, per-color Dock tile PNGs from the duck source
-// art in icons/<color>/. Most sources are already real-alpha PNGs; only
-// yellow's front_dockling.jpg is a JPEG with a checkerboard pattern baked
-// into its pixels instead of real transparency, so it goes through
-// keyCheckerboard() first (the other colors' front poses are already clean
-// PNGs). Every source then gets cropped to its content bounding box and
-// normalized onto the same canvas size, so swapping states or colors doesn't
-// visually jump per DOCKLING_SPEC.md's Dock-tile art requirements.
+// art in icons/<color>/<adjective>_dockling.png. Most sources are already
+// real-alpha PNGs; only yellow's front_dockling.jpg is a JPEG with a
+// checkerboard pattern baked into its pixels instead of real transparency,
+// so it goes through keyCheckerboard() first (every other source, including
+// every other color's front pose, is already a clean PNG). Every source then
+// gets cropped to its content bounding box and normalized onto the same
+// canvas size, so swapping states or colors doesn't visually jump per
+// DOCKLING_SPEC.md's Dock-tile art requirements.
 //
 // Usage: swift tools/generate_dock_icons.swift <icons-dir> <resources-output-dir>
 
@@ -21,9 +22,9 @@ let outputRoot = args[2]
 let canvasSize = 256
 let margin = 20 // px of padding around the duck within the canvas
 
-// Every character color Dockling can assign to a session. Filenames follow
-// "<color>_dockling.png" etc., except yellow, which keeps its original
-// unprefixed names since it's the default/reference art.
+// Every character color Dockling can assign to a session. Source filenames
+// are all "<adjective>_dockling.png" (or .jpg — see loadSourceImage) inside
+// icons/<color>/, with no color in the filename itself.
 let colors = ["yellow", "blue", "babyblue", "gray", "green", "lavender", "orange", "pink", "tan"]
 
 func loadCGImage(_ path: String) -> CGImage {
@@ -32,6 +33,18 @@ func loadCGImage(_ path: String) -> CGImage {
         fatalError("could not load \(path)")
     }
     return image
+}
+
+/// Loads `icons/<color>/<adjective>_dockling.<ext>`, trying .png then .jpg —
+/// every source is a PNG except yellow's front pose, which is a checkerboard
+/// JPEG needing keyCheckerboard() first (see file header).
+func loadSourceImage(colorDir: String, adjective: String) -> CGImage {
+    let pngPath = (colorDir as NSString).appendingPathComponent("\(adjective)_dockling.png")
+    if FileManager.default.fileExists(atPath: pngPath) {
+        return loadCGImage(pngPath)
+    }
+    let jpgPath = (colorDir as NSString).appendingPathComponent("\(adjective)_dockling.jpg")
+    return keyCheckerboard(loadCGImage(jpgPath))
 }
 
 func rgbaBuffer(_ image: CGImage) -> (pixels: [UInt8], width: Int, height: Int, colorSpace: CGColorSpace) {
@@ -223,46 +236,32 @@ func renderOnCanvas(_ cropped: CGImage, outPath: String) {
 
 let fileManager = FileManager.default
 
+// Maps each Dock tile output (DockState.rawValue) to the source art
+// adjective that produces it. Several states intentionally share one pose —
+// per-bucket art is a later refinement once more poses exist.
+let poseForState: [(output: String, adjective: String)] = [
+    ("idle", "idle"),
+    ("bash", "thinking"),
+    ("search", "thinking"),
+    ("other", "thinking"),
+    ("eureka", "eureka"),
+    ("awaiting-input", "front"),
+    ("error", "angry"),
+    ("edit", "coding"),
+    ("thumbs-up", "thumbsup"),
+]
+
 for color in colors {
     let colorDir = (iconsDir as NSString).appendingPathComponent(color)
     let outputDir = (outputRoot as NSString).appendingPathComponent(color)
     try? fileManager.createDirectory(atPath: outputDir, withIntermediateDirectories: true)
 
-    func sourcePath(_ suffix: String) -> String {
-        let name = color == "yellow" ? suffix : "\(color)_\(suffix)"
-        return (colorDir as NSString).appendingPathComponent(name)
-    }
-    func outPath(_ name: String) -> String {
-        (outputDir as NSString).appendingPathComponent(name)
-    }
-
-    let idleImage = cropToBBox(loadCGImage(sourcePath("dockling.png")))
-    let thinkingImage = cropToBBox(loadCGImage(sourcePath("thinking_dockling.png")))
-    let eurekaImage = cropToBBox(loadCGImage(sourcePath("eureka_dockling.png")))
-
-    let frontSourcePath = color == "yellow"
-        ? (colorDir as NSString).appendingPathComponent("front_dockling.jpg")
-        : (colorDir as NSString).appendingPathComponent("front_\(color)_dockling.png")
-    let frontRaw = loadCGImage(frontSourcePath)
-    let frontImage = cropToBBox(color == "yellow" ? keyCheckerboard(frontRaw) : frontRaw)
-
-    // Unlike the other poses, "angry" keeps the color prefix even for yellow.
-    let angrySourcePath = (colorDir as NSString).appendingPathComponent("angry_\(color)_dockling.png")
-    let angryImage = cropToBBox(loadCGImage(angrySourcePath))
-
-    // Like "angry", "coding" keeps the color prefix for every color, yellow included.
-    let codingSourcePath = (colorDir as NSString).appendingPathComponent("coding_\(color)_dockling.png")
-    let codingImage = cropToBBox(loadCGImage(codingSourcePath))
-
-    renderOnCanvas(idleImage, outPath: outPath("idle.png"))
-    renderOnCanvas(eurekaImage, outPath: outPath("eureka.png"))
-    renderOnCanvas(frontImage, outPath: outPath("awaiting-input.png"))
-    renderOnCanvas(angryImage, outPath: outPath("error.png"))
-    renderOnCanvas(codingImage, outPath: outPath("edit.png"))
-
-    // Every other "actively doing something" bucket shares the thinking pose
-    // for now — per-bucket art is a later refinement once more poses exist.
-    for state in ["bash", "search", "other"] {
-        renderOnCanvas(thinkingImage, outPath: outPath("\(state).png"))
+    // Cache: several outputs share the same source adjective (e.g. "thinking"
+    // feeds bash/search/other), so load+crop each adjective only once.
+    var croppedByAdjective: [String: CGImage] = [:]
+    for (outputName, adjective) in poseForState {
+        let cropped = croppedByAdjective[adjective] ?? cropToBBox(loadSourceImage(colorDir: colorDir, adjective: adjective))
+        croppedByAdjective[adjective] = cropped
+        renderOnCanvas(cropped, outPath: (outputDir as NSString).appendingPathComponent("\(outputName).png"))
     }
 }

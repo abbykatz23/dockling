@@ -14,6 +14,7 @@ final class DockIconController {
     private let minimumHold: [DockState: TimeInterval] = [
         .eureka: 1.5,
         .error: 1.5,
+        .thumbsUp: 1.2,
     ]
 
     /// `scale`: draws each source image smaller within the same canvas size

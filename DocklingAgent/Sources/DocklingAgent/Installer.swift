@@ -53,7 +53,7 @@ enum Installer {
         )
 
         let hookURL = "http://127.0.0.1:\(hookPort)/hook?token=\(token)"
-        for event in ["PreToolUse", "PostToolUseFailure", "TaskCompleted", "Notification", "Stop", "StopFailure", "SessionEnd"] {
+        for event in ["PreToolUse", "PostToolUseFailure", "TaskCompleted", "Notification", "Stop", "StopFailure", "SessionEnd", "UserPromptSubmit"] {
             hooks[event] = mergedGroups(
                 existing: hooks[event],
                 isDocklingsOwn: { group in matches(group: group, key: "url", contains: "127.0.0.1:\(hookPort)/hook") },

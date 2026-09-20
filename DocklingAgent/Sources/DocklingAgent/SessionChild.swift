@@ -73,6 +73,7 @@ final class SessionChildDelegate: NSObject, NSApplicationDelegate {
         }
         fputs("[dockling] session \(sessionID) sending reply to pane \(pane)\n", stderr)
         TmuxReply.send(text: text, toPane: pane)
+        dockIcon.apply(.thumbsUp)
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -143,6 +144,18 @@ final class SessionChildDelegate: NSObject, NSApplicationDelegate {
             }
             dockIcon.apply(.awaitingInput)
         case "Stop", "StopFailure":
+            dockIcon.apply(.idle)
+        case "UserPromptSubmit":
+            // Claude Code has no hook for a user-initiated interrupt (Escape
+            // mid-tool-call) — confirmed against the hooks docs, not
+            // assumed: Stop doesn't fire on interrupts, and there's no
+            // separate cancellation event. Without this, an interrupt left
+            // the duck stuck showing whatever it was doing right before.
+            // UserPromptSubmit reliably fires for the next real prompt
+            // regardless of how the previous turn ended, so resetting here
+            // means a stuck icon self-heals the moment the user types
+            // anything — not an interrupt-specific fix, just the nearest
+            // reliable signal that a fresh turn is starting.
             dockIcon.apply(.idle)
         case "RelaunchSelf":
             // Mama asking one of her babies (this process) to relaunch as
