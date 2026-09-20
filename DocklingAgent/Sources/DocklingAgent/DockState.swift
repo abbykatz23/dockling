@@ -28,9 +28,7 @@ enum DockState: String, CaseIterable, Codable {
     /// bucket is keyed on tool name alone.
     static func bucket(forToolName toolName: String, toolInput: [String: Any]?) -> DockState {
         if toolName == "Bash", let command = toolInput?["command"] as? String {
-            if isGitSubcommand("commit", in: command) { return .committing }
-            if isGitSubcommand("pull", in: command) { return .pulling }
-            if isGitSubcommand("push", in: command) { return .pushing }
+            if let gitState = gitPoseState(in: command) { return gitState }
             if isCompressCommand(command) { return .compressing }
             if isTestCommand(command) { return .testing }
         }
@@ -46,14 +44,33 @@ enum DockState: String, CaseIterable, Codable {
         }
     }
 
-    /// Deliberately loose: matches "git" anywhere followed later by
-    /// `subcommand` as a whole word, so `git commit -m "..."`,
-    /// `git -C path pull`, and `cd path && git commit ...` all match. This
-    /// is purely cosmetic (which pose shows), so an occasional false
-    /// positive/negative has no real consequence.
-    private static func isGitSubcommand(_ subcommand: String, in command: String) -> Bool {
-        guard let gitRange = command.range(of: #"\bgit\b"#, options: .regularExpression) else { return false }
-        return command.range(of: "\\b\(subcommand)\\b", options: [.regularExpression], range: gitRange.upperBound..<command.endIndex) != nil
+    // Matches "git" + optional short flags (e.g. "-C path", "--no-pager")
+    // immediately followed by one of our three tracked subcommands — NOT a
+    // bare search for "commit"/"pull"/"push" anywhere later in the string.
+    // That distinction matters for two reasons a fixed-priority "does the
+    // command contain X" check got wrong: a chained command like
+    // `git add -A && git commit -m "..." && git push` contains both
+    // "commit" and "push", so it needs picking between them (this takes
+    // whichever git invocation comes last — the culminating action of the
+    // chain); and a commit message that happens to mention "push" in plain
+    // English (`git commit -m "fix push notification bug"`) must not match
+    // "push" at all, since anchoring to right-after-"git" means a stray
+    // word inside a quoted argument was never preceded by "git" in the
+    // first place.
+    private static let gitPoseRegex = try! NSRegularExpression(
+        pattern: #"\bgit\s+(?:-{1,2}[A-Za-z-]+(?:[= ]\S+)?\s+)*(commit|pull|push)\b"#
+    )
+
+    private static func gitPoseState(in command: String) -> DockState? {
+        let fullRange = NSRange(command.startIndex..<command.endIndex, in: command)
+        let matches = gitPoseRegex.matches(in: command, range: fullRange)
+        guard let lastMatch = matches.last, let subcommandRange = Range(lastMatch.range(at: 1), in: command) else { return nil }
+        switch command[subcommandRange] {
+        case "commit": return .committing
+        case "pull": return .pulling
+        case "push": return .pushing
+        default: return nil
+        }
     }
 
     private static let compressionCommandNames = [
