@@ -257,6 +257,7 @@ let poseForState: [(output: String, adjective: String)] = [
     ("committing-groom", "groom"),
     ("committing-bride", "bride"),
     ("pulling", "fishing"),
+    ("pushing", "box"),
 ]
 
 for color in colors {

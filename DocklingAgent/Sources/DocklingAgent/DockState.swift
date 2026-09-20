@@ -13,6 +13,7 @@ enum DockState: String, CaseIterable, Codable {
     case butt
     case committing
     case pulling
+    case pushing
 
     /// Bucket a Claude Code tool name (plus, for Bash, its actual command
     /// text) into one of the v1 tool-state buckets. `toolInput` is only
@@ -22,6 +23,7 @@ enum DockState: String, CaseIterable, Codable {
         if toolName == "Bash", let command = toolInput?["command"] as? String {
             if isGitSubcommand("commit", in: command) { return .committing }
             if isGitSubcommand("pull", in: command) { return .pulling }
+            if isGitSubcommand("push", in: command) { return .pushing }
         }
         switch toolName {
         case "Bash", "BashOutput", "KillShell":
