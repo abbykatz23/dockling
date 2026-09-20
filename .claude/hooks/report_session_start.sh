@@ -10,8 +10,9 @@ set -eu
 
 INPUT=$(cat)
 PAYLOAD=$(echo "$INPUT" | jq --arg pane "${TMUX_PANE:-}" '. + {tmux_pane: $pane}')
+TOKEN=$(cat "$HOME/.dockling/secret" 2>/dev/null || echo "")
 
-curl -s -m 2 -X POST http://127.0.0.1:8765/hook \
+curl -s -m 2 -X POST "http://127.0.0.1:8765/hook?token=${TOKEN}" \
   -H 'Content-Type: application/json' \
   -d "$PAYLOAD" > /dev/null || true
 
