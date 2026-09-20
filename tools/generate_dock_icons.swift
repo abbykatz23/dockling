@@ -241,7 +241,7 @@ let fileManager = FileManager.default
 // per-bucket art is a later refinement once more poses exist.
 let poseForState: [(output: String, adjective: String)] = [
     ("idle", "idle"),
-    ("bash", "thinking"),
+    ("bash", "construction"),
     ("search", "thinking"),
     ("other", "thinking"),
     ("eureka", "eureka"),
