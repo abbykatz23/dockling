@@ -9,9 +9,9 @@ See [DOCKLING_SPEC.md](./DOCKLING_SPEC.md) for the full design rationale. This R
 - One Dock icon per active Claude Code session (not one aggregate icon), driven by Claude Code's [hook system](https://docs.claude.com/en/docs/claude-code/hooks).
 - Each session's duck gets a random color from a 9-color pool, avoiding colors currently in use by other active sessions; that color is then remembered per project (see [Per-project colors](#per-project-colors)).
 - Hovering a Dock icon shows the project name.
-- Poses: idle, bash, edit, search, other-tool, coding, awaiting-input, error, eureka (task completed).
-- Clicking a duck while it's awaiting input pops open a small reply panel, anchored right above wherever you clicked. Submitting delivers the text into the session's terminal via `tmux send-keys`.
-- Each subagent a session spawns gets its own duck too — same color as its parent, 80% her size — that appears while the subagent's working and disappears shortly after it reports back. See [Subagent ("baby") ducks](#subagent-baby-ducks).
+- Poses: idle, bash, edit, search, other-tool, coding, awaiting-input, error, eureka (task completed), thumbs-up (a reply was just sent).
+- Clicking a duck while it's awaiting input pops open a small reply panel, anchored right above wherever you clicked. Submitting delivers the text into the session's terminal via `tmux send-keys`, and the duck shows a thumbs-up briefly. Can be turned off — see [Configuration](#configuration).
+- Each subagent a session spawns gets its own duck too — same color as its parent, 80% her size — that appears while the subagent's working and disappears shortly after it reports back. See [Subagent ("baby") ducks](#subagent-baby-ducks). Can be turned off — see [Configuration](#configuration).
 
 ## Requirements
 
@@ -72,6 +72,22 @@ This doesn't apply to the dedicated Claude Code panel in VS Code (a webview, not
 - When a subagent reports back (its `SubagentHandback` call — the reliable "I'm done" signal; Claude Code doesn't have a separate subagent-start/stop event pair), her duck shows the eureka pose briefly, then disappears.
 - The Dock has no public API to control icon order — it's just launch order among running apps, with no way to group or reorder. To keep a family visually together with mama rightmost, the whole family (every current baby, then mama) relaunches itself under a new pid each time a new baby joins, becoming the most-recently-launched block again. This causes a brief visible flicker across the whole family — a deliberate trade-off, chosen over leaving families to get split apart by other sessions' activity in between.
 - Each relaunch is best-effort, not a documented Dock guarantee, and only triggers on a *new* baby joining (removing one doesn't reshuffle the rest, since Dock order doesn't need it to).
+
+## Configuration
+
+Both on by default. Create `~/.dockling/config.json` to turn either off (missing keys/file default to on — there's nothing to set up for the common case):
+
+```json
+{
+  "subagent_ducks": false,
+  "reply_popover": false
+}
+```
+
+- `subagent_ducks`: when off, subagents don't get their own duck, and their activity has no effect on mama's icon either — it's as if they're invisible. The whole family-relaunch mechanism (see below) also never triggers, since it exists solely to keep babies grouped with mama.
+- `reply_popover`: when off, clicking an awaiting-input duck does nothing special (same as clicking any other Dock icon) instead of opening the reply panel. The awaiting-input pose itself still shows — you'd just reply directly in the terminal instead.
+
+Read once at process startup (dispatcher and every session child each load their own copy), so a change takes effect on the next restart, not live.
 
 ## Architecture
 

@@ -58,7 +58,7 @@ final class SessionChildDelegate: NSObject, NSApplicationDelegate {
     /// Only pops the reply panel while actually awaiting input — otherwise a
     /// click just activates the (windowless) app, same as any other Dock icon.
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
-        guard dockIcon.currentState == .awaitingInput else { return true }
+        guard dockingConfig.replyPopover, dockIcon.currentState == .awaitingInput else { return true }
         replyPanel.show(question: pendingQuestion, near: NSEvent.mouseLocation)
         return true
     }
@@ -97,7 +97,7 @@ final class SessionChildDelegate: NSObject, NSApplicationDelegate {
             dockIcon.apply(.idle)
         }
 
-        fputs("[dockling] session \(sessionID) child started on port \(port)\n", stderr)
+        fputs("[dockling] session \(sessionID) child started on port \(port), config subagentDucks=\(dockingConfig.subagentDucks) replyPopover=\(dockingConfig.replyPopover)\n", stderr)
 
         let server = HookServer(port: port, expectedToken: sharedSecret) { [weak self] rawJSON, event in
             self?.handle(rawJSON: rawJSON, event: event)
@@ -117,6 +117,7 @@ final class SessionChildDelegate: NSObject, NSApplicationDelegate {
         }
 
         if isMama, let agentID = event.agentID {
+            guard dockingConfig.subagentDucks else { return } // ignore subagent activity entirely when the feature is off — no baby duck, no effect on mama's own icon
             handleBabyEvent(agentID: agentID, agentType: event.agentType, toolName: event.toolName, rawJSON: rawJSON)
             return
         }
