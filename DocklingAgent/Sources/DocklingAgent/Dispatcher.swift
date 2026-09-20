@@ -17,7 +17,7 @@ final class Dispatcher {
     /// in the first place. Liveness/termination go through raw signals
     /// instead of Process.isRunning/.terminate() for the same reason.
     private final class Session {
-        let pid: Int32
+        var pid: Int32 // mutable: see the "SelfRelaunched" handling in route()
         let port: UInt16
         let color: String
         var tmuxPane: String? // learned from the SessionStart command hook, if any
@@ -87,6 +87,19 @@ final class Dispatcher {
             return
         }
 
+        // A session child relaunches itself under a new pid, same port, to
+        // reclaim the rightmost Dock position after a new subagent baby
+        // joins (see SessionChild.swift's scheduleRelaunch()). She notifies
+        // us so this doesn't look like the session dying to the liveness
+        // check just below — otherwise the very next event for her would
+        // find her old (now-dead) pid, conclude she'd crashed, and spawn a
+        // completely fresh replacement that's lost track of her babies.
+        if event.name == "SelfRelaunched", let newPid = rawJSON["new_pid"] as? Int {
+            sessions[sessionID]?.pid = Int32(newPid)
+            persistRegistry()
+            return
+        }
+
         if let existing = sessions[sessionID], !existing.isAlive {
             fputs("[dockling] session \(sessionID)'s child is no longer alive, respawning\n", stderr)
             sessions.removeValue(forKey: sessionID)
@@ -101,28 +114,16 @@ final class Dispatcher {
     }
 
     private func spawnSession(sessionID: String, cwd: String?) -> Session? {
-        guard let executablePath = Bundle.main.executablePath else {
-            fputs("[dockling] could not resolve own executable path to spawn session child\n", stderr)
-            return nil
-        }
         let port = allocatePort()
         let color = resolveColor(forCwd: cwd)
         let name = projectName(fromCwd: cwd)
-        let launchPath = appBundleExecutable(realPath: executablePath, projectName: name)
 
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: launchPath)
-        process.arguments = ["--session", sessionID, "--port", "\(port)", "--color", color, "--name", name]
-
-        do {
-            try process.run()
-        } catch {
-            fputs("[dockling] failed to spawn child for session \(sessionID): \(error)\n", stderr)
+        guard let pid = ChildProcessLauncher.spawn(session: sessionID, port: port, color: color, name: name) else {
             return nil
         }
 
         fputs("[dockling] spawned session \(sessionID) on port \(port), color \(color)\n", stderr)
-        let session = Session(pid: process.processIdentifier, port: port, color: color)
+        let session = Session(pid: pid, port: port, color: color)
         sessions[sessionID] = session
         persistRegistry()
         return session
@@ -132,55 +133,6 @@ final class Dispatcher {
         guard let cwd, !cwd.isEmpty else { return "DocklingAgent" }
         let name = (cwd as NSString).lastPathComponent
         return name.isEmpty ? "DocklingAgent" : name
-    }
-
-    /// Dock/Launch Services identity (the hover tooltip, in particular) is
-    /// driven by real bundle metadata (Info.plist's CFBundleName), read at
-    /// launch — renaming the process after the fact (via a symlink, or via
-    /// ProcessInfo.processName) doesn't reach it; both were tried and
-    /// confirmed not to change the tooltip. So this synthesizes a minimal,
-    /// throwaway .app bundle per project, with the executable inside it just
-    /// a symlink to the real binary, and launches that instead.
-    private func appBundleExecutable(realPath: String, projectName: String) -> String {
-        let bundlesDir = (NSTemporaryDirectory() as NSString).appendingPathComponent("dockling-agent-bundles")
-        let bundlePath = (bundlesDir as NSString).appendingPathComponent("\(projectName).app")
-        let contentsDir = (bundlePath as NSString).appendingPathComponent("Contents")
-        let macOSDir = (contentsDir as NSString).appendingPathComponent("MacOS")
-        let executablePath = (macOSDir as NSString).appendingPathComponent("DocklingAgent")
-        let infoPlistPath = (contentsDir as NSString).appendingPathComponent("Info.plist")
-
-        let fileManager = FileManager.default
-        try? fileManager.createDirectory(atPath: macOSDir, withIntermediateDirectories: true)
-
-        if let existingTarget = try? fileManager.destinationOfSymbolicLink(atPath: executablePath), existingTarget != realPath {
-            try? fileManager.removeItem(atPath: executablePath) // stale, e.g. from a rebuilt binary
-        }
-        if !fileManager.fileExists(atPath: executablePath) {
-            do {
-                try fileManager.createSymbolicLink(atPath: executablePath, withDestinationPath: realPath)
-            } catch {
-                fputs("[dockling] could not create app bundle for \(projectName), falling back to real path: \(error)\n", stderr)
-                return realPath
-            }
-        }
-
-        let bundleID = "com.dockling.session." + projectName.lowercased()
-            .map { $0.isLetter || $0.isNumber ? $0 : "-" }
-            .reduce(into: "") { $0.append($1) }
-        let info: [String: Any] = [
-            "CFBundleName": projectName,
-            "CFBundleDisplayName": projectName,
-            "CFBundleExecutable": "DocklingAgent",
-            "CFBundleIdentifier": bundleID,
-            "CFBundlePackageType": "APPL",
-            "CFBundleShortVersionString": "1.0",
-            "CFBundleVersion": "1",
-        ]
-        if let plistData = try? PropertyListSerialization.data(fromPropertyList: info, format: .xml, options: 0) {
-            try? plistData.write(to: URL(fileURLWithPath: infoPlistPath))
-        }
-
-        return executablePath
     }
 
     private func allocatePort() -> UInt16 {

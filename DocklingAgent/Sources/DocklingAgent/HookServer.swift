@@ -20,10 +20,21 @@ final class HookServer {
         self.onEvent = onEvent
     }
 
-    func start() {
+    /// Retries briefly on bind failure: a session child relaunching itself
+    /// onto its own port (see SessionChild.swift's self-relaunch, used to
+    /// keep the "primary" duck trailing its subagent babies in the Dock) has
+    /// a short window where the old and new processes both want the same
+    /// port, and the new one needs to wait for the old one to release it.
+    func start(bindAttemptsLeft: Int = 20) {
         let params = NWParameters.tcp
         guard let listener = try? NWListener(using: params, on: port) else {
-            fputs("[dockling] failed to bind port \(port)\n", stderr)
+            if bindAttemptsLeft > 1 {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
+                    self?.start(bindAttemptsLeft: bindAttemptsLeft - 1)
+                }
+            } else {
+                fputs("[dockling] failed to bind port \(port)\n", stderr)
+            }
             return
         }
         self.listener = listener
@@ -132,6 +143,8 @@ struct HookEvent {
     let message: String? // Notification only: a generic string like "Claude needs your permission" — not the specific question
     let notificationType: String? // Notification only: "permission_prompt", "idle_prompt", etc.
     let cwd: String? // present on every event; used to name the Dock tile after the project
+    let agentID: String? // present only on events from a subagent's own tool calls, not the top-level session's
+    let agentType: String? // e.g. "general-purpose" — present alongside agentID
 
     /// A human-readable description of what a tool call is about to do, built
     /// from tool_name + tool_input. Notification events don't carry this
@@ -173,6 +186,8 @@ struct HookEvent {
         self.message = json["message"] as? String
         self.notificationType = json["notification_type"] as? String
         self.cwd = json["cwd"] as? String
+        self.agentID = json["agent_id"] as? String
+        self.agentType = json["agent_type"] as? String
         let pane = json["tmux_pane"] as? String
         self.tmuxPane = (pane?.isEmpty ?? true) ? nil : pane
     }

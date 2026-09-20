@@ -1,6 +1,6 @@
 import Foundation
 
-enum DockState: String, CaseIterable {
+enum DockState: String, CaseIterable, Codable {
     case idle
     case bash
     case edit

@@ -18,7 +18,9 @@ if arguments.contains("--install") {
 } else if let sessionID = argValue("--session"), let portString = argValue("--port"), let port = UInt16(portString) {
     let color = argValue("--color") ?? "yellow"
     let name = argValue("--name") ?? "DocklingAgent"
-    runSessionChild(sessionID: sessionID, port: port, color: color, name: name)
+    let agentID = argValue("--agent")
+    let parentPort = argValue("--parent-port").flatMap(UInt16.init) ?? hookPort
+    runSessionChild(sessionID: sessionID, port: port, color: color, name: name, agentID: agentID, parentPort: parentPort)
 } else {
     runDispatcher(port: hookPort)
 }
