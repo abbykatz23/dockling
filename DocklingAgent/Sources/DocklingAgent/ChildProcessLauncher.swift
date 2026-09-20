@@ -8,8 +8,12 @@ import Foundation
 /// relaunching its own replacement — see SessionChild.swift's ordering
 /// trick), since both need the exact same launch mechanism.
 enum ChildProcessLauncher {
+    /// Returns the launched `Process`, still running, so a caller that cares
+    /// (the dispatcher, for prompt cleanup on an unexpected death — see
+    /// Dispatcher.Session) can retain it and attach a terminationHandler;
+    /// callers that only need the pid can just read `.processIdentifier`.
     @discardableResult
-    static func spawn(session: String, port: UInt16, color: String, name: String, agentID: String? = nil, parentPort: UInt16? = nil) -> pid_t? {
+    static func spawn(session: String, port: UInt16, color: String, name: String, agentID: String? = nil, parentPort: UInt16? = nil) -> Process? {
         guard let launchedPath = Bundle.main.executablePath else {
             fputs("[dockling] could not resolve own executable path to spawn a child\n", stderr)
             return nil
@@ -40,7 +44,7 @@ enum ChildProcessLauncher {
             fputs("[dockling] failed to spawn child for session \(session): \(error)\n", stderr)
             return nil
         }
-        return process.processIdentifier
+        return process
     }
 
     /// Dock/Launch Services identity (the hover tooltip, in particular) is

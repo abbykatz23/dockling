@@ -71,6 +71,11 @@ enum Installer {
         }
         do {
             try output.write(to: URL(fileURLWithPath: settingsPath))
+            // settings.json now embeds the same secret Secret.swift locks to
+            // 0600 — leaving this file at the default umask (typically
+            // world-readable) would undermine that protection, since the
+            // token is just as usable read out of here.
+            try fileManager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: settingsPath)
         } catch {
             fputs("error: could not write \(settingsPath): \(error)\n", stderr)
             exit(1)

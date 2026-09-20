@@ -53,20 +53,26 @@ EOF
 UID_NUM=$(id -u)
 launchctl bootout "gui/$UID_NUM/$LABEL" >/dev/null 2>&1 || true
 
+# A private, unpredictable temp file rather than a fixed /tmp path: /tmp is
+# world-writable, and a fixed filename there is a symlink-attack target —
+# another local user could pre-create a symlink at that path pointing at any
+# file we can write, which this script's redirect would then clobber.
+ERROR_LOG=$(mktemp)
+trap 'rm -f "$ERROR_LOG"' EXIT
+
 # launchd can take a moment to fully release the label after bootout —
 # bootstrapping immediately after occasionally fails with a transient I/O
 # error. Retry rather than requiring the caller to re-run this by hand.
 attempt=1
-until launchctl bootstrap "gui/$UID_NUM" "$PLIST" 2>/tmp/dockling-launchd-error; do
+until launchctl bootstrap "gui/$UID_NUM" "$PLIST" 2>"$ERROR_LOG"; do
   if [ "$attempt" -ge 5 ]; then
     echo "error: launchctl bootstrap failed after $attempt attempts:" >&2
-    cat /tmp/dockling-launchd-error >&2
+    cat "$ERROR_LOG" >&2
     exit 1
   fi
   attempt=$((attempt + 1))
   sleep 0.5
 done
-rm -f /tmp/dockling-launchd-error
 
 echo "Installed and started $LABEL — the dispatcher will now start automatically at login."
 echo "Logs: $LOG_DIR/dispatcher.log"

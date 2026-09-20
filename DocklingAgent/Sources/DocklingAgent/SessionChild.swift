@@ -237,10 +237,10 @@ final class SessionChildDelegate: NSObject, NSApplicationDelegate {
         let babyPort = allocateBabyPort()
         let babySession = "\(sessionID)·\(agentID)"
         let babyName = "\(name) · subagent"
-        guard let pid = ChildProcessLauncher.spawn(session: babySession, port: babyPort, color: color, name: babyName, agentID: agentID, parentPort: port) else {
+        guard let babyProcess = ChildProcessLauncher.spawn(session: babySession, port: babyPort, color: color, name: babyName, agentID: agentID, parentPort: port) else {
             return
         }
-        babies[agentID] = Baby(pid: pid, port: babyPort)
+        babies[agentID] = Baby(pid: babyProcess.processIdentifier, port: babyPort)
         babyOrder.append(agentID)
         fputs("[dockling] session \(sessionID) spawned baby \(agentID) (\(agentType ?? "subagent")) on port \(babyPort)\n", stderr)
         forward(rawJSON: rawJSON, to: babyPort, attemptsLeft: 5)

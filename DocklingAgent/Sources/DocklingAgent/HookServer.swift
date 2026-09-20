@@ -27,7 +27,13 @@ final class HookServer {
     /// port, and the new one needs to wait for the old one to release it.
     func start(bindAttemptsLeft: Int = 20) {
         let params = NWParameters.tcp
-        guard let listener = try? NWListener(using: params, on: port) else {
+        // Binds only the loopback interface — without this, NWListener binds
+        // all interfaces despite the port still just being "127.0.0.1" in
+        // logs/comments, making the hook port (and its token-guessing
+        // surface) reachable from anyone else on the same network, not just
+        // this machine.
+        params.requiredLocalEndpoint = NWEndpoint.hostPort(host: "127.0.0.1", port: port)
+        guard let listener = try? NWListener(using: params) else {
             if bindAttemptsLeft > 1 {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
                     self?.start(bindAttemptsLeft: bindAttemptsLeft - 1)

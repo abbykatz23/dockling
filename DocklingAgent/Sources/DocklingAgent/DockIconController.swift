@@ -76,6 +76,13 @@ final class DockIconController {
     /// entirely, since nothing will (or needs to) call apply() again before
     /// the process terminates right after.
     func playFarewell(duration: TimeInterval = 1.5, completion: @escaping () -> Void) {
+        // A still-pending selfExpiring auto-revert (e.g. eureka from a
+        // Stop just before this SessionEnd) would otherwise fire mid-
+        // animation and flash the icon back to idle for a frame before the
+        // next farewell frame overwrites it again.
+        pendingWorkItem?.cancel()
+        pendingWorkItem = nil
+
         guard let baseImage = cache[.butt] else {
             completion()
             return

@@ -11,21 +11,28 @@ final class Dispatcher {
     // which is what actually produces Resources/<color>/*.png for each of these.
     private static let colors = ["yellow", "blue", "babyblue", "gray", "green", "lavender", "orange", "pink", "tan"]
 
-    /// Identified by pid rather than a retained `Process` handle — a session
-    /// adopted from SessionRegistry.load() on startup was never spawned by
-    /// this Dispatcher instance, so there's no Process object for it to hold
-    /// in the first place. Liveness/termination go through raw signals
-    /// instead of Process.isRunning/.terminate() for the same reason.
+    /// Identified by pid rather than solely relying on a retained `Process`
+    /// handle — a session adopted from SessionRegistry.load() on startup
+    /// was never spawned by this Dispatcher instance, so there's no Process
+    /// object for it in the first place, and liveness/termination for those
+    /// go through raw signals instead of Process.isRunning/.terminate().
+    /// A session spawned in this dispatcher's own lifetime *does* keep its
+    /// Process, purely so its terminationHandler can prune it the instant
+    /// it dies unexpectedly (crash, force-quit, OOM) rather than only on the
+    /// next hook event for that exact session_id — which, since session IDs
+    /// are per-run UUIDs never reused, might never come.
     private final class Session {
         var pid: Int32 // mutable: see the "SelfRelaunched" handling in route()
         let port: UInt16
         let color: String
         var tmuxPane: String? // learned from the SessionStart command hook, if any
+        var process: Process? // nil for an adopted session; see the type doc
 
-        init(pid: Int32, port: UInt16, color: String) {
+        init(pid: Int32, port: UInt16, color: String, process: Process? = nil) {
             self.pid = pid
             self.port = port
             self.color = color
+            self.process = process
         }
 
         var isAlive: Bool { SessionRegistry.isAlive(pid: pid) }
@@ -35,7 +42,7 @@ final class Dispatcher {
     private var sessions: [String: Session] = [:]
     // Randomized rather than a fixed base: even with startup reconciliation
     // below, this stays a useful second line of defense.
-    private var nextPort: UInt16 = UInt16.random(in: 20000...60000)
+    private var nextPort: UInt16 = UInt16.random(in: Dispatcher.portRangeStart...Dispatcher.portRangeEnd)
     private let urlSession = URLSession(configuration: .ephemeral)
     private var server: HookServer? // must be retained — see the bug this fixed below
 
@@ -129,14 +136,41 @@ final class Dispatcher {
         let color = resolveColor(forCwd: cwd)
         let name = projectName(fromCwd: cwd)
 
-        guard let pid = ChildProcessLauncher.spawn(session: sessionID, port: port, color: color, name: name) else {
+        guard let process = ChildProcessLauncher.spawn(session: sessionID, port: port, color: color, name: name) else {
             return nil
         }
+        let pid = process.processIdentifier
 
         fputs("[dockling] spawned session \(sessionID) on port \(port), color \(color)\n", stderr)
-        let session = Session(pid: pid, port: port, color: color)
+        let session = Session(pid: pid, port: port, color: color, process: process)
         sessions[sessionID] = session
         persistRegistry()
+
+        // Prunes this session the instant its child dies unexpectedly
+        // (crash, force-quit, OOM), rather than waiting on a hook event for
+        // this exact session_id that — since session IDs are per-run UUIDs,
+        // never reused — might never arrive.
+        //
+        // A deliberate self-relaunch also "terminates" this same Process
+        // (see SelfRelaunched handling in route()), and that's not a crash —
+        // but checking the pid *immediately* here isn't enough to tell the
+        // two apart: the replacement's "SelfRelaunched" notification is a
+        // separate async network round trip that can just as easily arrive
+        // *after* this terminationHandler fires as before it (confirmed by
+        // testing: this exact race was hit and incorrectly deleted a
+        // healthy, just-relaunched session). So this waits a short grace
+        // period and re-checks the pid then, once there's been time for that
+        // notification to land — mirroring the same wait-then-check pattern
+        // SessionEnd already uses below for its own force-terminate.
+        process.terminationHandler = { [weak self] terminatedProcess in
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                guard let self, let current = self.sessions[sessionID], current.pid == terminatedProcess.processIdentifier else { return }
+                fputs("[dockling] session \(sessionID) child exited unexpectedly, removing\n", stderr)
+                self.sessions.removeValue(forKey: sessionID)
+                self.persistRegistry()
+            }
+        }
+
         return session
     }
 
@@ -146,11 +180,27 @@ final class Dispatcher {
         return name.isEmpty ? "DocklingAgent" : name
     }
 
+    // Matches nextPort's initial random range (see its declaration) — wrapping
+    // back into this same range, rather than letting nextPort climb forever,
+    // is what keeps a long-lived dispatcher (this is meant to run for weeks
+    // under launchd) from eventually overflowing UInt16 and crashing.
+    private static let portRangeStart: UInt16 = 20000
+    private static let portRangeEnd: UInt16 = 60000
+
     private func allocatePort() -> UInt16 {
         let usedPorts = Set(sessions.values.map(\.port))
-        while usedPorts.contains(nextPort) { nextPort += 1 }
-        defer { nextPort += 1 }
+        var attempts = 0
+        let maxAttempts = Int(Self.portRangeEnd - Self.portRangeStart)
+        while usedPorts.contains(nextPort), attempts < maxAttempts {
+            advancePort()
+            attempts += 1
+        }
+        defer { advancePort() }
         return nextPort
+    }
+
+    private func advancePort() {
+        nextPort = nextPort >= Self.portRangeEnd ? Self.portRangeStart : nextPort + 1
     }
 
     /// Resolves a project's color per DOCKLING_SPEC.md's character-assignment
