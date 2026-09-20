@@ -1,14 +1,16 @@
 // Builds the live per-state, per-color Dock tile PNGs from the duck source
-// art in icons/<color>/<adjective>_dockling.png. Most sources are already
-// real-alpha PNGs; only yellow's front_dockling.jpg is a JPEG with a
-// checkerboard pattern baked into its pixels instead of real transparency,
-// so it goes through keyCheckerboard() first (every other source, including
-// every other color's front pose, is already a clean PNG). Every source then
+// art in icons/dockling/<color>/<adjective>.png. Most sources are already
+// real-alpha PNGs; only yellow's front.jpg is a JPEG with a checkerboard
+// pattern baked into its pixels instead of real transparency, so it goes
+// through keyCheckerboard() first (every other source, including every
+// other color's front pose, is already a clean PNG). Every source then
 // gets cropped to its content bounding box and normalized onto the same
 // canvas size, so swapping states or colors doesn't visually jump per
 // DOCKLING_SPEC.md's Dock-tile art requirements.
 //
-// Usage: swift tools/generate_dock_icons.swift <icons-dir> <resources-output-dir>
+// Usage: swift tools/generate_dock_icons.swift <dockling-icons-dir> <resources-output-dir>
+//   (pass icons/dockling, not icons — the latter also holds the unrelated
+//   static AppIcon.iconset/.icns, which this script has no business touching)
 
 import AppKit
 
@@ -23,8 +25,8 @@ let canvasSize = 256
 let margin = 20 // px of padding around the duck within the canvas
 
 // Every character color Dockling can assign to a session. Source filenames
-// are all "<adjective>_dockling.png" (or .jpg — see loadSourceImage) inside
-// icons/<color>/, with no color in the filename itself.
+// are all "<adjective>.png" (or .jpg — see loadSourceImage) inside
+// icons/dockling/<color>/, with no color in the filename itself.
 let colors = ["yellow", "blue", "babyblue", "gray", "green", "lavender", "orange", "pink", "tan"]
 
 func loadCGImage(_ path: String) -> CGImage {
@@ -35,15 +37,15 @@ func loadCGImage(_ path: String) -> CGImage {
     return image
 }
 
-/// Loads `icons/<color>/<adjective>_dockling.<ext>`, trying .png then .jpg —
+/// Loads `icons/dockling/<color>/<adjective>.<ext>`, trying .png then .jpg —
 /// every source is a PNG except yellow's front pose, which is a checkerboard
 /// JPEG needing keyCheckerboard() first (see file header).
 func loadSourceImage(colorDir: String, adjective: String) -> CGImage {
-    let pngPath = (colorDir as NSString).appendingPathComponent("\(adjective)_dockling.png")
+    let pngPath = (colorDir as NSString).appendingPathComponent("\(adjective).png")
     if FileManager.default.fileExists(atPath: pngPath) {
         return loadCGImage(pngPath)
     }
-    let jpgPath = (colorDir as NSString).appendingPathComponent("\(adjective)_dockling.jpg")
+    let jpgPath = (colorDir as NSString).appendingPathComponent("\(adjective).jpg")
     return keyCheckerboard(loadCGImage(jpgPath))
 }
 
