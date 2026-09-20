@@ -12,14 +12,16 @@ enum DockState: String, CaseIterable, Codable {
     case thumbsUp = "thumbs-up"
     case butt
     case committing
+    case pulling
 
     /// Bucket a Claude Code tool name (plus, for Bash, its actual command
     /// text) into one of the v1 tool-state buckets. `toolInput` is only
-    /// consulted to tell a `git commit` apart from any other Bash call —
-    /// every other bucket is keyed on tool name alone.
+    /// consulted to tell specific git subcommands apart from any other Bash
+    /// call — every other bucket is keyed on tool name alone.
     static func bucket(forToolName toolName: String, toolInput: [String: Any]?) -> DockState {
-        if toolName == "Bash", let command = toolInput?["command"] as? String, isGitCommit(command) {
-            return .committing
+        if toolName == "Bash", let command = toolInput?["command"] as? String {
+            if isGitSubcommand("commit", in: command) { return .committing }
+            if isGitSubcommand("pull", in: command) { return .pulling }
         }
         switch toolName {
         case "Bash", "BashOutput", "KillShell":
@@ -33,13 +35,13 @@ enum DockState: String, CaseIterable, Codable {
         }
     }
 
-    /// Deliberately loose: matches "git" anywhere followed later by "commit"
-    /// as a whole word, so `git commit -m "..."`, `git -C path commit ...`,
-    /// and `cd path && git commit ...` all match. This is purely cosmetic
-    /// (which pose shows), so an occasional false positive/negative has no
-    /// real consequence.
-    private static func isGitCommit(_ command: String) -> Bool {
+    /// Deliberately loose: matches "git" anywhere followed later by
+    /// `subcommand` as a whole word, so `git commit -m "..."`,
+    /// `git -C path pull`, and `cd path && git commit ...` all match. This
+    /// is purely cosmetic (which pose shows), so an occasional false
+    /// positive/negative has no real consequence.
+    private static func isGitSubcommand(_ subcommand: String, in command: String) -> Bool {
         guard let gitRange = command.range(of: #"\bgit\b"#, options: .regularExpression) else { return false }
-        return command.range(of: #"\bcommit\b"#, options: [.regularExpression], range: gitRange.upperBound..<command.endIndex) != nil
+        return command.range(of: "\\b\(subcommand)\\b", options: [.regularExpression], range: gitRange.upperBound..<command.endIndex) != nil
     }
 }
