@@ -88,6 +88,10 @@ final class SessionChildDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.regular)
+        // Primes both sound effects' playback engine now, while a brief
+        // delay is invisible — otherwise that one-time cost lands on
+        // whichever real Stop/Notification fires first, clipping its start.
+        SoundPlayer.warmUp()
 
         if let handoff = ChildHandoff.consume(forSession: sessionID) {
             // Resuming after a self-relaunch (see relaunchFamily()) —
