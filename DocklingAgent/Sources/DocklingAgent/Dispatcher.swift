@@ -25,12 +25,15 @@ final class Dispatcher {
     }
 
     private var sessions: [String: Session] = [:]
-    private var nextPort: UInt16 = 8766
+    // Randomized rather than a fixed base: the dispatcher doesn't persist
+    // session state across restarts, so a fixed start would reliably collide
+    // with still-running children from a previous dispatcher process.
+    private var nextPort: UInt16 = UInt16.random(in: 20000...60000)
     private let urlSession = URLSession(configuration: .ephemeral)
     private var server: HookServer? // must be retained — see the bug this fixed below
 
     func start(onPort port: UInt16) {
-        let server = HookServer(port: port) { [weak self] rawJSON, event in
+        let server = HookServer(port: port, expectedToken: sharedSecret) { [weak self] rawJSON, event in
             self?.route(rawJSON: rawJSON, event: event)
         }
         server.start()
@@ -70,7 +73,7 @@ final class Dispatcher {
             return nil
         }
         let port = allocatePort()
-        let color = allocateColor()
+        let color = resolveColor(forCwd: cwd)
         let name = projectName(fromCwd: cwd)
         let launchPath = appBundleExecutable(realPath: executablePath, projectName: name)
 
@@ -158,10 +161,32 @@ final class Dispatcher {
         return nextPort
     }
 
-    /// Random, avoiding colors already used by another currently-active
-    /// session. Falls back to a fully random pick (duplicates allowed) once
-    /// the pool is exhausted — the decided behavior from DOCKLING_SPEC.md's
-    /// character-assignment section.
+    /// Resolves a project's color per DOCKLING_SPEC.md's character-assignment
+    /// section, in priority order:
+    /// 1. A project-local `.dockling` dotfile pin — always wins, even over a
+    ///    previously persisted assignment (lets a team check in a fixed
+    ///    character for collaborators).
+    /// 2. A color persisted from an earlier run of this same project.
+    /// 3. A fresh random pick, avoiding colors already used by another
+    ///    currently-active session (falling back to a fully random pick,
+    ///    duplicates allowed, once the pool is exhausted) — then persisted
+    ///    so it stays stable across future runs.
+    private func resolveColor(forCwd cwd: String?) -> String {
+        guard let cwd, !cwd.isEmpty else { return allocateColor() }
+        let projectPath = (cwd as NSString).standardizingPath
+
+        if let pinned = ProjectColors.pinnedColor(forCwd: projectPath, validColors: Self.colors) {
+            return pinned
+        }
+        if let persisted = ProjectColors.persistedColor(forProjectPath: projectPath), Self.colors.contains(persisted) {
+            return persisted
+        }
+
+        let color = allocateColor()
+        ProjectColors.persist(color: color, forProjectPath: projectPath)
+        return color
+    }
+
     private func allocateColor() -> String {
         let usedColors = Set(sessions.values.map(\.color))
         let available = Self.colors.filter { !usedColors.contains($0) }
@@ -173,7 +198,7 @@ final class Dispatcher {
     /// dropping the event that triggered the spawn.
     private func forward(rawJSON: [String: Any], to port: UInt16, attemptsLeft: Int) {
         guard let body = try? JSONSerialization.data(withJSONObject: rawJSON) else { return }
-        var request = URLRequest(url: URL(string: "http://127.0.0.1:\(port)/hook")!)
+        var request = URLRequest(url: URL(string: "http://127.0.0.1:\(port)/hook?token=\(sharedSecret)")!)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = body
