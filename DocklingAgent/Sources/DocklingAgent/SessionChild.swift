@@ -178,6 +178,11 @@ final class SessionChildDelegate: NSObject, NSApplicationDelegate {
         case "StopFailure":
             dockIcon.apply(.idle)
             didWorkThisTurn = false
+        case "PreCompact":
+            // Context compaction and file compression are different things,
+            // but "squishing something smaller" is the same idea either way
+            // — reuses the same pose rather than needing its own.
+            dockIcon.apply(.compressing)
         case "UserPromptSubmit":
             // Claude Code has no hook for a user-initiated interrupt (Escape
             // mid-tool-call) — confirmed against the hooks docs, not
