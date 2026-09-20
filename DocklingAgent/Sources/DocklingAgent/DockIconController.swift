@@ -33,17 +33,32 @@ final class DockIconController {
             .appendingPathComponent("resources") as NSString)
             .appendingPathComponent(color))
 
+        // .committing has two separate assets (committing-bride.png,
+        // committing-groom.png — see generate_dock_icons.swift) rather than
+        // one file at its own rawValue; which one actually backs the state
+        // is resolved once here, per config, rather than per lookup, so a
+        // "random" pick stays the same duck for this whole process's life
+        // instead of flip-flopping on every commit.
+        let resolvedCommitPose: DocklingConfig.CommitPose = dockingConfig.commitPose == .random
+            ? (Bool.random() ? .bride : .groom)
+            : dockingConfig.commitPose
+        if dockingConfig.commitPose == .random {
+            fputs("[dockling] resolved random commit_pose -> \(resolvedCommitPose.rawValue)\n", stderr)
+        }
+
         for state in DockState.allCases {
+            let assetName = state == .committing ? "committing-\(resolvedCommitPose.rawValue)" : state.rawValue
+
             // Prefers ~/.dockling/resources (installed by `--install`) over
             // Bundle.module: the latter reads straight out of the repo
             // checkout's .build folder, which triggers a macOS permission
             // prompt every time if the repo happens to live under Downloads,
             // Desktop, or Documents. Bundle.module stays as a fallback so a
             // debug build still works before `--install` has ever run.
-            let installedPath = (installedDir as NSString).appendingPathComponent("\(state.rawValue).png")
+            let installedPath = (installedDir as NSString).appendingPathComponent("\(assetName).png")
             let image: NSImage? = FileManager.default.fileExists(atPath: installedPath)
                 ? NSImage(contentsOfFile: installedPath)
-                : Bundle.module.url(forResource: state.rawValue, withExtension: "png", subdirectory: "Resources/\(color)").flatMap(NSImage.init(contentsOf:))
+                : Bundle.module.url(forResource: assetName, withExtension: "png", subdirectory: "Resources/\(color)").flatMap(NSImage.init(contentsOf:))
 
             guard let image else {
                 fputs("warning: missing icon asset for state \(state.rawValue) (color \(color))\n", stderr)

@@ -6,18 +6,27 @@ import Foundation
 /// fall back to the default (everything on) — there's nothing to set up for
 /// the common case.
 struct DocklingConfig {
+    enum CommitPose: String, Decodable {
+        case bride
+        case groom
+        case random
+    }
+
     var subagentDucks: Bool
     var replyPopover: Bool
+    var commitPose: CommitPose
 
-    static let `default` = DocklingConfig(subagentDucks: true, replyPopover: true)
+    static let `default` = DocklingConfig(subagentDucks: true, replyPopover: true, commitPose: .random)
 
     private struct Raw: Decodable {
         let subagentDucks: Bool?
         let replyPopover: Bool?
+        let commitPose: CommitPose?
 
         enum CodingKeys: String, CodingKey {
             case subagentDucks = "subagent_ducks"
             case replyPopover = "reply_popover"
+            case commitPose = "commit_pose"
         }
     }
 
@@ -32,7 +41,8 @@ struct DocklingConfig {
         }
         return DocklingConfig(
             subagentDucks: raw.subagentDucks ?? true,
-            replyPopover: raw.replyPopover ?? true
+            replyPopover: raw.replyPopover ?? true,
+            commitPose: raw.commitPose ?? .random
         )
     }
 }

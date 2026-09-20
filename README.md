@@ -9,7 +9,7 @@ See [DOCKLING_SPEC.md](./DOCKLING_SPEC.md) for the full design rationale. This R
 - One Dock icon per active Claude Code session (not one aggregate icon), driven by Claude Code's [hook system](https://docs.claude.com/en/docs/claude-code/hooks).
 - Each session's duck gets a random color from a 9-color pool, avoiding colors currently in use by other active sessions; that color is then remembered per project (see [Per-project colors](#per-project-colors)).
 - Hovering a Dock icon shows the project name.
-- Poses: idle, bash, edit, search, other-tool, coding, awaiting-input, error, eureka (task completed), thumbs-up (a reply was just sent), butt (farewell — shown for 1.5s right before the duck exits on session end).
+- Poses: idle, bash (construction), edit (coding), search, other-tool, awaiting-input, error, eureka (task completed), thumbs-up (a reply was just sent), committing (bride or groom formalwear — see [Configuration](#configuration)), butt (farewell — shown for 1.5s right before the duck exits on session end).
 - Clicking a duck while it's awaiting input pops open a small reply panel, anchored right above wherever you clicked. Submitting delivers the text into the session's terminal via `tmux send-keys`, and the duck shows a thumbs-up briefly. Can be turned off — see [Configuration](#configuration).
 - Each subagent a session spawns gets its own duck too — same color as its parent, 80% her size — that appears while the subagent's working and disappears shortly after it reports back. See [Subagent ("baby") ducks](#subagent-baby-ducks). Can be turned off — see [Configuration](#configuration).
 
@@ -75,17 +75,19 @@ This doesn't apply to the dedicated Claude Code panel in VS Code (a webview, not
 
 ## Configuration
 
-Both on by default. Create `~/.dockling/config.json` to turn either off (missing keys/file default to on — there's nothing to set up for the common case):
+Create `~/.dockling/config.json` to change any of these (missing keys/file fall back to the defaults below — there's nothing to set up for the common case):
 
 ```json
 {
   "subagent_ducks": false,
-  "reply_popover": false
+  "reply_popover": false,
+  "commit_pose": "bride"
 }
 ```
 
-- `subagent_ducks`: when off, subagents don't get their own duck, and their activity has no effect on mama's icon either — it's as if they're invisible. The whole family-relaunch mechanism (see below) also never triggers, since it exists solely to keep babies grouped with mama.
-- `reply_popover`: when off, clicking an awaiting-input duck does nothing special (same as clicking any other Dock icon) instead of opening the reply panel. The awaiting-input pose itself still shows — you'd just reply directly in the terminal instead.
+- `subagent_ducks` (default `true`): when off, subagents don't get their own duck, and their activity has no effect on mama's icon either — it's as if they're invisible. The whole family-relaunch mechanism (see below) also never triggers, since it exists solely to keep babies grouped with mama.
+- `reply_popover` (default `true`): when off, clicking an awaiting-input duck does nothing special (same as clicking any other Dock icon) instead of opening the reply panel. The awaiting-input pose itself still shows — you'd just reply directly in the terminal instead.
+- `commit_pose` (default `"random"`): which formalwear pose shows while a `git commit` is running — `"bride"`, `"groom"`, or `"random"` (picked once per session/subagent process, not re-rolled on every commit).
 
 Read once at process startup (dispatcher and every session child each load their own copy), so a change takes effect on the next restart, not live.
 
