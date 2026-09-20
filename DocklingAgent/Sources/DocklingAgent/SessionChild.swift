@@ -144,7 +144,7 @@ final class SessionChildDelegate: NSObject, NSApplicationDelegate {
                 fputs("[dockling] session \(sessionID) learned tmux pane \(pane)\n", stderr)
             }
         case "PreToolUse":
-            let bucket = event.toolName.map(DockState.bucket(forToolName:)) ?? .other
+            let bucket = event.toolName.map { DockState.bucket(forToolName: $0, toolInput: event.toolInput) } ?? .other
             dockIcon.apply(bucket)
             lastToolDescription = event.toolDescription
             didWorkThisTurn = true
