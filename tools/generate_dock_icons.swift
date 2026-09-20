@@ -249,6 +249,7 @@ let poseForState: [(output: String, adjective: String)] = [
     ("error", "angry"),
     ("edit", "coding"),
     ("thumbs-up", "thumbsup"),
+    ("butt", "butt"),
 ]
 
 for color in colors {
