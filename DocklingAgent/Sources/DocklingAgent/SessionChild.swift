@@ -197,7 +197,7 @@ final class SessionChildDelegate: NSObject, NSApplicationDelegate {
             relaunchSelf()
         case "SessionEnd":
             fputs("[dockling] session \(sessionID) ended, exiting\n", stderr)
-            for baby in babies.values { kill(baby.pid, SIGTERM) }
+            for baby in babies.values { endBaby(port: baby.port, pid: baby.pid) }
             // The dispatcher forwards SessionEnd and then, per its own
             // comment, waits 2s before force-terminating us if we haven't
             // exited on our own — this 1.5s farewell fits comfortably
@@ -227,8 +227,9 @@ final class SessionChildDelegate: NSObject, NSApplicationDelegate {
                 babies[agentID] = baby
                 forward(rawJSON: ["hook_event_name": "TaskCompleted"], to: baby.port, attemptsLeft: 3)
                 let pid = baby.pid
+                let port = baby.port
                 DispatchQueue.main.asyncAfter(deadline: .now() + 1.8) { [weak self] in
-                    kill(pid, SIGTERM)
+                    self?.endBaby(port: port, pid: pid)
                     self?.babies.removeValue(forKey: agentID)
                     self?.babyOrder.removeAll { $0 == agentID }
                 }
@@ -257,6 +258,20 @@ final class SessionChildDelegate: NSObject, NSApplicationDelegate {
         while used.contains(nextBabyPort) { nextBabyPort += 1 }
         defer { nextBabyPort += 1 }
         return nextBabyPort
+    }
+
+    /// Ends a baby gracefully instead of a bare kill(): forwards a
+    /// SessionEnd-shaped event so she runs the exact same handling every
+    /// session child already has for it (playFarewell(), then
+    /// NSApp.terminate()) rather than just vanishing with no warning.
+    /// Force-kills after a grace period as a safety net, in case the event
+    /// never arrives or she never gets to exit on her own — the same
+    /// pattern the dispatcher uses for its own children's SessionEnd.
+    private func endBaby(port: UInt16, pid: Int32) {
+        forward(rawJSON: ["hook_event_name": "SessionEnd"], to: port, attemptsLeft: 3)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) {
+            if SessionRegistry.isAlive(pid: pid) { kill(pid, SIGTERM) }
+        }
     }
 
     private func forward(rawJSON: [String: Any], to port: UInt16, attemptsLeft: Int) {
