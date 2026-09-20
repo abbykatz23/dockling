@@ -96,6 +96,7 @@ Read once at process startup (dispatcher and every session child each load their
 - **Auth**: every hook request (both real Claude Code hooks and the dispatcher's internal forwards to a child) must carry `?token=<secret>` matching `~/.dockling/secret`, or it's rejected.
 - **Restart resilience**: the dispatcher persists its session table (pid/port/color per session) to `~/.dockling/sessions.json` and reconciles with it on startup — adopting still-running children instead of spawning duplicates, and dropping anything no longer alive. This is what makes the `launchd` `KeepAlive` restart-on-crash behavior safe. Baby ducks aren't in this registry (only mama tracks her own babies, in-memory) — a dispatcher restart while subagents are active can orphan their ducks, same trade-off the top-level registry exists to avoid.
 - **Reply delivery**: the reply panel anchors to wherever you actually clicked (`NSEvent.mouseLocation`), not to an Accessibility-API lookup of the icon's frame — the latter breaks with multiple displays, since macOS mirrors one Dock icon's position across every screen's Dock.
+- **Icon assets**: `--install` copies them to `~/.dockling/resources`, and every Dock icon loads from there rather than from inside the repo checkout. Loading straight out of the checkout (via SPM's `Bundle.module`) would trigger a macOS permission prompt on every single session/subagent spawn if the repo happens to live under Downloads, Desktop, or Documents — a real risk given how often people clone into Downloads by default.
 
 ## Known limitations
 
