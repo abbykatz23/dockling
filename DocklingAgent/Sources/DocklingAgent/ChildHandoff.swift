@@ -18,6 +18,7 @@ struct ChildHandoff: Codable {
     let dockState: DockState
     let pendingQuestion: String
     let lastToolDescription: String?
+    let lastCwd: String?
     let babies: [String: Baby] // agent_id -> baby; empty for a baby (babies don't have babies)
     let babyOrder: [String] // agent_ids in first-seen order, for keeping a relaunched family grouped in a stable order
 

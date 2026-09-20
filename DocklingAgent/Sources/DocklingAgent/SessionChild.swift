@@ -35,6 +35,7 @@ final class SessionChildDelegate: NSObject, NSApplicationDelegate {
     private var pendingQuestion: String = "Claude is waiting for your input."
     private var lastToolDescription: String? // remembered from the most recent PreToolUse, since Notification's own message is generic
     private var didWorkThisTurn = false // set on PreToolUse, reset on UserPromptSubmit — see the "Stop" case for why
+    private var lastCwd: String? // remembered from whichever event last carried one — used to find this project's VS Code window on click
     private lazy var replyPanel = ReplyPanelController { [weak self] text in
         self?.submitReply(text)
     }
@@ -56,9 +57,17 @@ final class SessionChildDelegate: NSObject, NSApplicationDelegate {
     }
 
     /// Clicking the Dock icon while there are no visible windows routes here.
-    /// Only pops the reply panel while actually awaiting input — otherwise a
-    /// click just activates the (windowless) app, same as any other Dock icon.
+    /// If this session has no tmux pane (i.e. isn't a terminal session
+    /// wrapped by the shim — most likely the VS Code panel), asks the
+    /// dispatcher to raise the matching VS Code window, since Accessibility
+    /// permission is only granted there, not per-project. Also pops the
+    /// reply panel while actually awaiting input — otherwise a click just
+    /// activates the (windowless) app, same as any other Dock icon.
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        if tmuxPane == nil, let cwd = lastCwd {
+            forward(rawJSON: ["hook_event_name": "FocusVSCodeWindow", "session_id": sessionID, "cwd": cwd], to: hookPort, attemptsLeft: 1)
+        }
+
         guard dockingConfig.replyPopover, dockIcon.currentState == .awaitingInput else { return true }
         replyPanel.show(question: pendingQuestion, near: NSEvent.mouseLocation)
         return true
@@ -87,6 +96,7 @@ final class SessionChildDelegate: NSObject, NSApplicationDelegate {
             tmuxPane = handoff.tmuxPane
             pendingQuestion = handoff.pendingQuestion
             lastToolDescription = handoff.lastToolDescription
+            lastCwd = handoff.lastCwd
             if isMama {
                 babies = handoff.babies.mapValues { Baby(pid: $0.pid, port: $0.port) }
                 babyOrder = handoff.babyOrder
@@ -108,6 +118,8 @@ final class SessionChildDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func handle(rawJSON: [String: Any], event: HookEvent) {
+        if let cwd = event.cwd { lastCwd = cwd }
+
         if isMama, event.name == "SelfRelaunched", let agentID = event.agentID, let newPid = rawJSON["new_pid"] as? Int {
             // One of my babies relaunched herself as part of a family
             // relaunch (see relaunchFamily()) — update my record of her
@@ -304,6 +316,7 @@ final class SessionChildDelegate: NSObject, NSApplicationDelegate {
             dockState: dockIcon.currentState ?? .idle,
             pendingQuestion: pendingQuestion,
             lastToolDescription: lastToolDescription,
+            lastCwd: lastCwd,
             babies: babies.mapValues { ChildHandoff.Baby(pid: $0.pid, port: $0.port) },
             babyOrder: babyOrder
         )
