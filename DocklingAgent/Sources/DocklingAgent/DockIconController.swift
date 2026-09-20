@@ -20,6 +20,14 @@ final class DockIconController {
         .eureka: 1.5,
         .error: 1.5,
         .thumbsUp: 1.2,
+        // An Edit tool call itself finishes almost instantly (unlike a real
+        // shell command, which naturally holds the bash pose for as long as
+        // it runs) — without a floor here, a PreToolUse for whatever the
+        // very next tool call is (often a Read right before, or a Bash
+        // rebuild right after) overwrites .edit within milliseconds, so the
+        // coding duck flashes by too fast to register even during a real
+        // editing burst.
+        .edit: 0.6,
     ]
     private let selfExpiring: Set<DockState> = [.eureka, .thumbsUp]
 
