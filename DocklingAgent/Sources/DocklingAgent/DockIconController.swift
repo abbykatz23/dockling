@@ -5,6 +5,11 @@ import AppKit
 /// meant to actually be seen, not flash by if another event fires a moment
 /// later — those get a minimum display duration. Whatever state was most
 /// recently requested during a hold wins once it expires; nothing queues up.
+/// A `selfExpiring` state additionally reverts to idle on its own once its
+/// hold elapses, if nothing else has applied a new state by then — without
+/// this, a celebration pose like eureka would just sit there as the de facto
+/// "resting" icon after every turn that did any work, since nothing else
+/// necessarily fires again until the user's next message.
 final class DockIconController {
     private var cache: [DockState: NSImage] = [:]
     private(set) var currentState: DockState?
@@ -16,6 +21,7 @@ final class DockIconController {
         .error: 1.5,
         .thumbsUp: 1.2,
     ]
+    private let selfExpiring: Set<DockState> = [.eureka, .thumbsUp]
 
     /// `scale`: draws each source image smaller within the same canvas size
     /// (rather than shrinking the canvas itself, per the spec's "keep canvas
@@ -71,5 +77,11 @@ final class DockIconController {
         currentState = state
         stateAppliedAt = Date()
         fputs("[dockling] dock icon -> \(state.rawValue)\n", stderr)
+
+        if selfExpiring.contains(state), let hold = minimumHold[state] {
+            let work = DispatchWorkItem { [weak self] in self?.setNow(.idle) }
+            pendingWorkItem = work
+            DispatchQueue.main.asyncAfter(deadline: .now() + hold, execute: work)
+        }
     }
 }
