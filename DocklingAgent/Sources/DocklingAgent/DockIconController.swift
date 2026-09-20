@@ -29,9 +29,23 @@ final class DockIconController {
     /// subagent "baby" duck visibly smaller than her mama, since otherwise
     /// they're identical and unrecognizable as a family at a glance.
     init(color: String, scale: CGFloat = 1.0) {
+        let installedDir = ((((NSHomeDirectory() as NSString).appendingPathComponent(".dockling") as NSString)
+            .appendingPathComponent("resources") as NSString)
+            .appendingPathComponent(color))
+
         for state in DockState.allCases {
-            guard let url = Bundle.module.url(forResource: state.rawValue, withExtension: "png", subdirectory: "Resources/\(color)"),
-                  let image = NSImage(contentsOf: url) else {
+            // Prefers ~/.dockling/resources (installed by `--install`) over
+            // Bundle.module: the latter reads straight out of the repo
+            // checkout's .build folder, which triggers a macOS permission
+            // prompt every time if the repo happens to live under Downloads,
+            // Desktop, or Documents. Bundle.module stays as a fallback so a
+            // debug build still works before `--install` has ever run.
+            let installedPath = (installedDir as NSString).appendingPathComponent("\(state.rawValue).png")
+            let image: NSImage? = FileManager.default.fileExists(atPath: installedPath)
+                ? NSImage(contentsOfFile: installedPath)
+                : Bundle.module.url(forResource: state.rawValue, withExtension: "png", subdirectory: "Resources/\(color)").flatMap(NSImage.init(contentsOf:))
+
+            guard let image else {
                 fputs("warning: missing icon asset for state \(state.rawValue) (color \(color))\n", stderr)
                 continue
             }

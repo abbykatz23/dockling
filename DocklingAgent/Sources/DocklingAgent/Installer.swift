@@ -33,6 +33,8 @@ enum Installer {
             exit(1)
         }
 
+        installResources(repoRoot: repoRoot, fileManager: fileManager)
+
         let claudeDir = (NSHomeDirectory() as NSString).appendingPathComponent(".claude")
         let settingsPath = (claudeDir as NSString).appendingPathComponent("settings.json")
         try? fileManager.createDirectory(atPath: claudeDir, withIntermediateDirectories: true)
@@ -75,6 +77,35 @@ enum Installer {
         }
 
         print("Dockling hooks installed into \(settingsPath) — this now applies to every Claude Code session on this machine, not just this repo.")
+    }
+
+    /// Copies the icon assets to ~/.dockling/resources so DockIconController
+    /// never needs to read them from inside the repo checkout at runtime.
+    /// Without this, every session child (spawned constantly — once per
+    /// session, once per subagent) reads its PNGs from
+    /// .build/.../DocklingAgent_DocklingAgent.bundle via Bundle.module — and
+    /// if the repo happens to live under Downloads, Desktop, or Documents
+    /// (Downloads is a very common default clone location), that's a macOS
+    /// permission prompt on every single one. ~/.dockling isn't inside any
+    /// TCC-protected folder, so this makes the prompt structurally
+    /// impossible regardless of where the repo sits.
+    private static func installResources(repoRoot: String, fileManager: FileManager) {
+        let sourceDir = ((((repoRoot as NSString).appendingPathComponent("DocklingAgent") as NSString)
+            .appendingPathComponent("Sources") as NSString)
+            .appendingPathComponent("DocklingAgent") as NSString)
+            .appendingPathComponent("Resources")
+        let destDir = ((NSHomeDirectory() as NSString).appendingPathComponent(".dockling") as NSString)
+            .appendingPathComponent("resources")
+
+        do {
+            if fileManager.fileExists(atPath: destDir) {
+                try fileManager.removeItem(atPath: destDir)
+            }
+            try fileManager.copyItem(atPath: sourceDir, toPath: destDir)
+        } catch {
+            fputs("error: could not install icon resources \(sourceDir) -> \(destDir): \(error)\n", stderr)
+            exit(1)
+        }
     }
 
     /// Drops any prior group in `existing` that looks like Dockling's own
