@@ -14,12 +14,12 @@ enum DockState: String, CaseIterable, Codable {
     case committing
     case pulling
     case pushing
-    // Art not in yet — see generate_dock_icons.swift's poseForState, which
-    // deliberately doesn't map these to a source pose yet. Until it does,
-    // DockIconController's cache has no image for either, so applying them
-    // is a safe no-op (logged, not visually shown) rather than a crash.
-    case compressing
     case testing
+    // Art not in yet — see generate_dock_icons.swift's poseForState, which
+    // deliberately doesn't map this to a source pose yet. Until it does,
+    // DockIconController's cache has no image for it, so applying it is a
+    // safe no-op (logged, not visually shown) rather than a crash.
+    case compressing
 
     /// Bucket a Claude Code tool name (plus, for Bash, its actual command
     /// text) into one of the v1 tool-state buckets. `toolInput` is only
