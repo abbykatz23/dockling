@@ -9,7 +9,13 @@ func argValue(_ flag: String) -> String? {
     return arguments[idx + 1]
 }
 
-if let sessionID = argValue("--session"), let portString = argValue("--port"), let port = UInt16(portString) {
+if arguments.contains("--install") {
+    guard let repoRoot = argValue("--repo-root") else {
+        fputs("error: --install requires --repo-root <path>\n", stderr)
+        exit(1)
+    }
+    Installer.run(repoRoot: repoRoot)
+} else if let sessionID = argValue("--session"), let portString = argValue("--port"), let port = UInt16(portString) {
     let color = argValue("--color") ?? "yellow"
     let name = argValue("--name") ?? "DocklingAgent"
     runSessionChild(sessionID: sessionID, port: port, color: color, name: name)
