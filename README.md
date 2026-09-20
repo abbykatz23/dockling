@@ -11,6 +11,7 @@ See [DOCKLING_SPEC.md](./DOCKLING_SPEC.md) for the full design rationale. This R
 - Hovering a Dock icon shows the project name.
 - Poses: idle, bash, edit, search, other-tool, coding, awaiting-input, error, eureka (task completed).
 - Clicking a duck while it's awaiting input pops open a small reply panel, anchored right above wherever you clicked. Submitting delivers the text into the session's terminal via `tmux send-keys`.
+- Each subagent a session spawns gets its own duck too — same color as its parent, 80% her size — that appears while the subagent's working and disappears shortly after it reports back. See [Subagent ("baby") ducks](#subagent-baby-ducks).
 
 ## Requirements
 
@@ -65,12 +66,19 @@ This doesn't apply to the dedicated Claude Code panel in VS Code (a webview, not
 
   Valid colors: `yellow`, `blue`, `babyblue`, `gray`, `green`, `lavender`, `orange`, `pink`, `tan`. A dotfile pin always wins over a persisted assignment.
 
+## Subagent ("baby") ducks
+
+- The first time a session's subagent makes a tool call, Dockling spawns her a duck: same color as the parent ("mama"), 80% the size, positioned to mama's left.
+- When a subagent reports back (its `SubagentHandback` call — the reliable "I'm done" signal; Claude Code doesn't have a separate subagent-start/stop event pair), her duck shows the eureka pose briefly, then disappears.
+- The Dock has no public API to control icon order — it's just launch order among running apps, with no way to group or reorder. To keep a family visually together with mama rightmost, the whole family (every current baby, then mama) relaunches itself under a new pid each time a new baby joins, becoming the most-recently-launched block again. This causes a brief visible flicker across the whole family — a deliberate trade-off, chosen over leaving families to get split apart by other sessions' activity in between.
+- Each relaunch is best-effort, not a documented Dock guarantee, and only triggers on a *new* baby joining (removing one doesn't reshuffle the rest, since Dock order doesn't need it to).
+
 ## Architecture
 
 - **Dispatcher** (`DocklingAgent` run with no args): the one stable process, bound to the well-known hook port. Never appears in the Dock itself. On each new `session_id`, spawns a child process and hands it a dynamically allocated port.
 - **Session child** (`DocklingAgent --session <id> --port <port> --color <color> --name <project>`): owns exactly one Dock icon (`NSApp.applicationIconImage`), launched through a synthesized per-project `.app` bundle so the Dock's hover tooltip shows the real project name. Exits when its session ends.
 - **Auth**: every hook request (both real Claude Code hooks and the dispatcher's internal forwards to a child) must carry `?token=<secret>` matching `~/.dockling/secret`, or it's rejected.
-- **Restart resilience**: the dispatcher persists its session table (pid/port/color per session) to `~/.dockling/sessions.json` and reconciles with it on startup — adopting still-running children instead of spawning duplicates, and dropping anything no longer alive. This is what makes the `launchd` `KeepAlive` restart-on-crash behavior safe.
+- **Restart resilience**: the dispatcher persists its session table (pid/port/color per session) to `~/.dockling/sessions.json` and reconciles with it on startup — adopting still-running children instead of spawning duplicates, and dropping anything no longer alive. This is what makes the `launchd` `KeepAlive` restart-on-crash behavior safe. Baby ducks aren't in this registry (only mama tracks her own babies, in-memory) — a dispatcher restart while subagents are active can orphan their ducks, same trade-off the top-level registry exists to avoid.
 - **Reply delivery**: the reply panel anchors to wherever you actually clicked (`NSEvent.mouseLocation`), not to an Accessibility-API lookup of the icon's frame — the latter breaks with multiple displays, since macOS mirrors one Dock icon's position across every screen's Dock.
 
 ## Known limitations
