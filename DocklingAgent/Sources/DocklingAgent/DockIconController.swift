@@ -147,7 +147,16 @@ final class DockIconController {
     }
 
     private func setNow(_ state: DockState) {
-        guard let image = cache[state] else { return }
+        guard let image = cache[state] else {
+            // Logged even though there's no image for it yet (a bucket can
+            // be wired up in DockState before its art lands — see
+            // DockState.swift's compressing/testing comment) — otherwise a
+            // state transition happening at all is invisible, both on
+            // screen and in the logs, making it impossible to verify the
+            // detection logic before the pose exists to look at.
+            fputs("[dockling] dock icon -> \(state.rawValue) (no art yet, no visual change)\n", stderr)
+            return
+        }
         NSApp.applicationIconImage = image
         currentState = state
         stateAppliedAt = Date()
