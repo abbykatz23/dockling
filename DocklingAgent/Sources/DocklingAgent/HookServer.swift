@@ -53,8 +53,15 @@ final class HookServer {
                             return
                         }
                         self.respond(connection, status: "200 OK")
-                        if let parsed = HookEvent(json: request.json) {
-                            self.onEvent(request.json, parsed)
+                        // tmux_pane arrives as a query param, not in the JSON
+                        // body (see report_session_start.sh — this avoids
+                        // needing jq or any other JSON tool in that shell
+                        // script), so fold it in here before handing the
+                        // event off.
+                        var json = request.json
+                        if let pane = request.tmuxPane { json["tmux_pane"] = pane }
+                        if let parsed = HookEvent(json: json) {
+                            self.onEvent(json, parsed)
                         }
                         return
                     }
@@ -71,12 +78,13 @@ final class HookServer {
 
     private struct ParsedRequest {
         let token: String?
+        let tmuxPane: String?
         let json: [String: Any]
     }
 
-    /// Returns the parsed request (query-string token + JSON body) once the
-    /// full HTTP request (headers + body per Content-Length) has arrived,
-    /// else nil to keep reading.
+    /// Returns the parsed request (query-string token/tmux_pane + JSON body)
+    /// once the full HTTP request (headers + body per Content-Length) has
+    /// arrived, else nil to keep reading.
     private static func parseCompleteRequest(_ buffer: Data) -> ParsedRequest? {
         guard let headerEnd = buffer.range(of: Data("\r\n\r\n".utf8)) else { return nil }
         let headerData = buffer[..<headerEnd.lowerBound]
@@ -94,14 +102,16 @@ final class HookServer {
 
         let requestLineParts = headerLines.first?.split(separator: " ") ?? []
         let path = requestLineParts.count >= 2 ? String(requestLineParts[1]) : ""
-        let token = URLComponents(string: path)?.queryItems?.first(where: { $0.name == "token" })?.value
+        let queryItems = URLComponents(string: path)?.queryItems ?? []
+        let token = queryItems.first(where: { $0.name == "token" })?.value
+        let tmuxPane = queryItems.first(where: { $0.name == "tmux_pane" })?.value
 
         let bodyStart = headerEnd.upperBound
         let body = buffer[bodyStart...]
         guard body.count >= contentLength else { return nil }
         let exactBody = body.prefix(contentLength)
         let parsedJSON = (try? JSONSerialization.jsonObject(with: Data(exactBody)) as? [String: Any]) ?? nil
-        return ParsedRequest(token: token, json: parsedJSON ?? [:])
+        return ParsedRequest(token: token, tmuxPane: tmuxPane, json: parsedJSON ?? [:])
     }
 
     private func respond(_ connection: NWConnection, status: String) {
