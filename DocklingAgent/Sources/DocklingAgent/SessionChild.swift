@@ -34,6 +34,7 @@ final class SessionChildDelegate: NSObject, NSApplicationDelegate {
     private var tmuxPane: String? // learned from SessionStart; needed to send a reply via `tmux send-keys`
     private var pendingQuestion: String = "Claude is waiting for your input."
     private var lastToolDescription: String? // remembered from the most recent PreToolUse, since Notification's own message is generic
+    private var didWorkThisTurn = false // set on PreToolUse, reset on UserPromptSubmit — see the "Stop" case for why
     private lazy var replyPanel = ReplyPanelController { [weak self] text in
         self?.submitReply(text)
     }
@@ -125,6 +126,7 @@ final class SessionChildDelegate: NSObject, NSApplicationDelegate {
         switch event.name {
         case "SessionStart":
             dockIcon.apply(.idle)
+            didWorkThisTurn = false
             if let pane = event.tmuxPane {
                 tmuxPane = pane
                 fputs("[dockling] session \(sessionID) learned tmux pane \(pane)\n", stderr)
@@ -133,6 +135,7 @@ final class SessionChildDelegate: NSObject, NSApplicationDelegate {
             let bucket = event.toolName.map(DockState.bucket(forToolName:)) ?? .other
             dockIcon.apply(bucket)
             lastToolDescription = event.toolDescription
+            didWorkThisTurn = true
         case "PostToolUseFailure":
             dockIcon.apply(.error)
         case "TaskCompleted":
@@ -144,8 +147,20 @@ final class SessionChildDelegate: NSObject, NSApplicationDelegate {
                 pendingQuestion = event.message ?? "Claude is waiting for your input."
             }
             dockIcon.apply(.awaitingInput)
-        case "Stop", "StopFailure":
+        case "Stop":
+            // TaskCompleted (below) only fires for todo-list-style milestones
+            // — genuinely rare — so on its own eureka barely showed up.
+            // Stop fires after every turn, so this celebrates any turn that
+            // actually did something (ran at least one tool), which is a
+            // much better match for "did real work, went fine" than either
+            // TaskCompleted alone or celebrating literally every turn
+            // (including a one-line answer with no tool calls, which
+            // wouldn't feel like an accomplishment).
+            dockIcon.apply(didWorkThisTurn ? .eureka : .idle)
+            didWorkThisTurn = false
+        case "StopFailure":
             dockIcon.apply(.idle)
+            didWorkThisTurn = false
         case "UserPromptSubmit":
             // Claude Code has no hook for a user-initiated interrupt (Escape
             // mid-tool-call) — confirmed against the hooks docs, not
@@ -158,6 +173,7 @@ final class SessionChildDelegate: NSObject, NSApplicationDelegate {
             // anything — not an interrupt-specific fix, just the nearest
             // reliable signal that a fresh turn is starting.
             dockIcon.apply(.idle)
+            didWorkThisTurn = false
         case "RelaunchSelf":
             // Mama asking one of her babies (this process) to relaunch as
             // part of a family relaunch. See relaunchFamily().
