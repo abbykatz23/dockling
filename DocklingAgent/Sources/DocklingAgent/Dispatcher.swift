@@ -11,33 +11,61 @@ final class Dispatcher {
     // which is what actually produces Resources/<color>/*.png for each of these.
     private static let colors = ["yellow", "blue", "babyblue", "gray", "green", "lavender", "orange", "pink", "tan"]
 
+    /// Identified by pid rather than a retained `Process` handle — a session
+    /// adopted from SessionRegistry.load() on startup was never spawned by
+    /// this Dispatcher instance, so there's no Process object for it to hold
+    /// in the first place. Liveness/termination go through raw signals
+    /// instead of Process.isRunning/.terminate() for the same reason.
     private final class Session {
-        let process: Process
+        let pid: Int32
         let port: UInt16
         let color: String
         var tmuxPane: String? // learned from the SessionStart command hook, if any
 
-        init(process: Process, port: UInt16, color: String) {
-            self.process = process
+        init(pid: Int32, port: UInt16, color: String) {
+            self.pid = pid
             self.port = port
             self.color = color
         }
+
+        var isAlive: Bool { SessionRegistry.isAlive(pid: pid) }
+        func terminate() { kill(pid, SIGTERM) }
     }
 
     private var sessions: [String: Session] = [:]
-    // Randomized rather than a fixed base: the dispatcher doesn't persist
-    // session state across restarts, so a fixed start would reliably collide
-    // with still-running children from a previous dispatcher process.
+    // Randomized rather than a fixed base: even with startup reconciliation
+    // below, this stays a useful second line of defense.
     private var nextPort: UInt16 = UInt16.random(in: 20000...60000)
     private let urlSession = URLSession(configuration: .ephemeral)
     private var server: HookServer? // must be retained — see the bug this fixed below
 
     func start(onPort port: UInt16) {
+        reconcileWithRunningChildren()
+
         let server = HookServer(port: port, expectedToken: sharedSecret) { [weak self] rawJSON, event in
             self?.route(rawJSON: rawJSON, event: event)
         }
         server.start()
         self.server = server
+    }
+
+    /// Adopts still-running children left behind by a previous dispatcher
+    /// process (manual restart, or an automatic launchd KeepAlive restart
+    /// after a crash) instead of spawning a duplicate the next time each
+    /// session fires a hook. Anything in the registry that's no longer alive
+    /// is just dropped.
+    private func reconcileWithRunningChildren() {
+        let registry = SessionRegistry.load()
+        for (sessionID, entry) in registry where SessionRegistry.isAlive(pid: entry.pid) {
+            sessions[sessionID] = Session(pid: entry.pid, port: entry.port, color: entry.color)
+            fputs("[dockling] adopted still-running session \(sessionID) on port \(entry.port), color \(entry.color)\n", stderr)
+        }
+        persistRegistry()
+    }
+
+    private func persistRegistry() {
+        let entries = sessions.mapValues { SessionRegistry.Entry(pid: $0.pid, port: $0.port, color: $0.color) }
+        SessionRegistry.save(entries)
     }
 
     private func route(rawJSON: [String: Any], event: HookEvent) {
@@ -50,14 +78,19 @@ final class Dispatcher {
             guard let session = sessions[sessionID] else { return }
             forward(rawJSON: rawJSON, to: session.port, attemptsLeft: 1)
             sessions.removeValue(forKey: sessionID)
+            persistRegistry()
             // Give the child a moment to see SessionEnd and terminate itself
-            // before we drop our reference to its Process.
+            // before force-terminating it.
             DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
-                if session.process.isRunning { session.process.terminate() }
+                if session.isAlive { session.terminate() }
             }
             return
         }
 
+        if let existing = sessions[sessionID], !existing.isAlive {
+            fputs("[dockling] session \(sessionID)'s child is no longer alive, respawning\n", stderr)
+            sessions.removeValue(forKey: sessionID)
+        }
         let session = sessions[sessionID] ?? spawnSession(sessionID: sessionID, cwd: event.cwd)
         guard let session else { return }
         if let pane = event.tmuxPane {
@@ -80,11 +113,6 @@ final class Dispatcher {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: launchPath)
         process.arguments = ["--session", sessionID, "--port", "\(port)", "--color", color, "--name", name]
-        process.terminationHandler = { [weak self] _ in
-            DispatchQueue.main.async {
-                self?.sessions.removeValue(forKey: sessionID)
-            }
-        }
 
         do {
             try process.run()
@@ -94,8 +122,9 @@ final class Dispatcher {
         }
 
         fputs("[dockling] spawned session \(sessionID) on port \(port), color \(color)\n", stderr)
-        let session = Session(process: process, port: port, color: color)
+        let session = Session(pid: process.processIdentifier, port: port, color: color)
         sessions[sessionID] = session
+        persistRegistry()
         return session
     }
 
