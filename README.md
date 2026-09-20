@@ -80,4 +80,4 @@ This doesn't apply to the dedicated Claude Code panel in VS Code (a webview, not
 
 ## License
 
-Not yet decided.
+MIT — see [LICENSE](./LICENSE).
