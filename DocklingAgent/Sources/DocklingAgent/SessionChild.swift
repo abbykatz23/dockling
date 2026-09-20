@@ -181,12 +181,11 @@ final class SessionChildDelegate: NSObject, NSApplicationDelegate {
         case "SessionEnd":
             fputs("[dockling] session \(sessionID) ended, exiting\n", stderr)
             for baby in babies.values { kill(baby.pid, SIGTERM) }
-            dockIcon.apply(.butt)
             // The dispatcher forwards SessionEnd and then, per its own
             // comment, waits 2s before force-terminating us if we haven't
             // exited on our own — this 1.5s farewell fits comfortably
             // inside that window.
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+            dockIcon.playFarewell(duration: 1.5) {
                 NSApp.terminate(nil)
             }
         default:

@@ -69,6 +69,45 @@ final class DockIconController {
         return scaledImage
     }
 
+    /// Plays the farewell (`butt`) pose shrinking down over `duration`, as if
+    /// waddling off toward the horizon, then calls `completion` — used right
+    /// before a session's duck actually exits, in place of a plain static
+    /// `apply(.butt)`. Bypasses the normal apply()/minimumHold machinery
+    /// entirely, since nothing will (or needs to) call apply() again before
+    /// the process terminates right after.
+    func playFarewell(duration: TimeInterval = 1.5, completion: @escaping () -> Void) {
+        guard let baseImage = cache[.butt] else {
+            completion()
+            return
+        }
+        fputs("[dockling] dock icon -> butt (farewell)\n", stderr)
+
+        let frameCount = 14
+        let minScale: CGFloat = 0.12
+        let frames = (0..<frameCount).map { index -> NSImage in
+            let t = CGFloat(index) / CGFloat(frameCount - 1)
+            let scale = 1.0 - t * (1.0 - minScale)
+            return Self.scaled(baseImage, by: scale)
+        }
+        playFrames(frames, interval: duration / Double(frameCount), completion: completion)
+    }
+
+    private func playFrames(_ frames: [NSImage], interval: TimeInterval, completion: @escaping () -> Void) {
+        guard let first = frames.first else {
+            completion()
+            return
+        }
+        NSApp.applicationIconImage = first
+        let remaining = Array(frames.dropFirst())
+        DispatchQueue.main.asyncAfter(deadline: .now() + interval) { [weak self] in
+            if remaining.isEmpty {
+                completion()
+            } else {
+                self?.playFrames(remaining, interval: interval, completion: completion)
+            }
+        }
+    }
+
     func apply(_ state: DockState) {
         DispatchQueue.main.async {
             self.pendingWorkItem?.cancel()
