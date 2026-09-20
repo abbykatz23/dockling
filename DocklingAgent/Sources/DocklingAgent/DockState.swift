@@ -15,10 +15,6 @@ enum DockState: String, CaseIterable, Codable {
     case pulling
     case pushing
     case testing
-    // Art not in yet — see generate_dock_icons.swift's poseForState, which
-    // deliberately doesn't map this to a source pose yet. Until it does,
-    // DockIconController's cache has no image for it, so applying it is a
-    // safe no-op (logged, not visually shown) rather than a crash.
     case compressing
 
     /// Bucket a Claude Code tool name (plus, for Bash, its actual command
