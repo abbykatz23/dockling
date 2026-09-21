@@ -18,8 +18,7 @@ enum DockState: String, CaseIterable, Codable {
     case compressing
     // Not reached from any hook event — DockIconController applies this on
     // its own after .idle has sat unchanged for a while (see its
-    // idleTimeout). No art yet either; see DockIconController's setNow()
-    // comment for what "no art yet" does until there is.
+    // idleTimeout).
     case sleepy
 
     /// Bucket a Claude Code tool name (plus, for Bash, its actual command
