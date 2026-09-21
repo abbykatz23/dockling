@@ -3,3 +3,4 @@
 *.xcuserstate
 icons/AppIcon.iconset/
 .DS_Store
+dist/

@@ -56,17 +56,51 @@ echo "Signing with $IDENTITY..."
 codesign --force --options runtime --timestamp --sign "$IDENTITY" "$BINARY"
 codesign --verify --strict --verbose=2 "$BINARY"
 
-echo "Assembling release folder..."
+echo "Building Dockling.app..."
 rm -rf "$DIST_DIR"
 STAGING="$DIST_DIR/staging"
-mkdir -p "$STAGING/install" "$STAGING/.claude/hooks" "$STAGING/DocklingAgent/.build/release" "$STAGING/DocklingAgent/Sources/DocklingAgent"
-cp "$REPO_ROOT/install/install.sh" "$REPO_ROOT/install/install_launchd.sh" "$STAGING/install/"
-cp "$REPO_ROOT/.claude/hooks/report_session_start.sh" "$STAGING/.claude/hooks/"
-cp "$BINARY" "$STAGING/DocklingAgent/.build/release/DocklingAgent"
-cp -R "$REPO_ROOT/DocklingAgent/Sources/DocklingAgent/Resources" "$STAGING/DocklingAgent/Sources/DocklingAgent/Resources"
-cp "$REPO_ROOT/README.md" "$STAGING/"
+APP="$STAGING/Dockling.app"
+mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
+cp "$BINARY" "$APP/Contents/MacOS/DocklingAgent"
+cp "$REPO_ROOT/icons/AppIcon.icns" "$APP/Contents/Resources/AppIcon.icns"
+cat > "$APP/Contents/Info.plist" <<EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleName</key>
+    <string>Dockling</string>
+    <key>CFBundleDisplayName</key>
+    <string>Dockling</string>
+    <key>CFBundleExecutable</key>
+    <string>DocklingAgent</string>
+    <key>CFBundleIdentifier</key>
+    <string>com.dockling.app</string>
+    <key>CFBundleIconFile</key>
+    <string>AppIcon</string>
+    <key>CFBundlePackageType</key>
+    <string>APPL</string>
+    <key>CFBundleShortVersionString</key>
+    <string>$VERSION</string>
+    <key>CFBundleVersion</key>
+    <string>$VERSION</string>
+    <key>LSMinimumSystemVersion</key>
+    <string>13.0</string>
+</dict>
+</plist>
+EOF
+
+# The .app bundle itself needs its own signature too, on top of the binary
+# inside it (same "container needs signing, not just its contents" reason
+# the DMG gets signed below) — otherwise Finder/Gatekeeper treat the bundle
+# as unsigned even though DocklingAgent inside it is properly signed.
+codesign --force --options runtime --timestamp --sign "$IDENTITY" "$APP"
+codesign --verify --strict --verbose=2 "$APP"
 
 echo "Building DMG..."
+# A symlink to /Applications alongside the .app is what makes Finder show
+# the familiar "drag to Applications" install pattern when the DMG opens.
+ln -s /Applications "$STAGING/Applications"
 hdiutil create -volname "Dockling" -srcfolder "$STAGING" -ov -format UDZO "$DMG_PATH"
 rm -rf "$STAGING"
 
@@ -90,5 +124,5 @@ spctl -a -t open --context context:primary-signature -v "$DMG_PATH"
 
 echo
 echo "Done: $DMG_PATH"
-echo "Recipients don't need the Swift toolchain — install.sh falls back to"
-echo "this DMG's prebuilt, signed binary when 'swift' isn't on PATH."
+echo "Recipients: open it, drag Dockling to Applications, double-click it,"
+echo "click Install. No Terminal, no Swift toolchain needed."

@@ -17,12 +17,20 @@ See [DOCKLING_SPEC.md](./DOCKLING_SPEC.md) for the full design rationale. This R
 ## Requirements
 
 - macOS
-- Swift toolchain (Xcode Command Line Tools is enough — `xcode-select --install`) — this is the *only* dependency; setup doesn't need jq, openssl, or anything else installed first.
+- Swift toolchain (Xcode Command Line Tools is enough — `xcode-select --install`), only if building from source (Option B below) — the downloaded DMG (Option A) ships a prebuilt binary and needs nothing beyond macOS itself.
 - `tmux`, only if you want the reply-from-Dock feature (`brew install tmux`)
 
 ## Setup
 
-1. **Build and register the hooks.** This wires Dockling into `~/.claude/settings.json` so *every* Claude Code session on your machine reports its state — not just sessions run from inside this repo. It's a clean merge: your existing hooks (for any event, any tool) are left untouched, and re-running this is always safe (it won't create duplicates).
+### Option A: download (no Terminal, no Swift toolchain)
+
+1. Download the latest signed, notarized DMG from [Releases](https://github.com/abbykatz23/dockling/releases), open it, and drag Dockling to Applications.
+2. Double-click Dockling in Applications and click **Install**. This wires Dockling into `~/.claude/settings.json` so *every* Claude Code session on your machine reports its state — not just sessions run from inside a checkout of this repo — and registers it to start automatically at login. Re-running this (double-click again → Reinstall) is always safe.
+3. Start or continue any Claude Code session. A duck appears in the Dock once the session's first hook fires (`SessionStart`, or the first tool call in some clients).
+
+### Option B: from source
+
+1. **Build and register the hooks.** Same clean-merge guarantee as above: your existing hooks (for any event, any tool) are left untouched, and re-running this is always safe.
 
    ```sh
    ./install/install.sh
@@ -33,7 +41,7 @@ See [DOCKLING_SPEC.md](./DOCKLING_SPEC.md) for the full design rationale. This R
 2. **Run the dispatcher.** This is the one long-lived process; it listens on port 8765 and spawns a child process (and Dock icon) per session.
 
    ```sh
-   ./DocklingAgent/.build/release/DocklingAgent &
+   ~/.dockling/bin/DocklingAgent --dispatcher &
    ```
 
    Or set it up as a `launchd` agent so it starts automatically at login and restarts itself if it ever crashes:
