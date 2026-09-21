@@ -37,9 +37,20 @@ fi
 
 "$BINARY" --install --repo-root "$REPO_ROOT"
 
+# A permanent copy, independent of wherever $REPO_ROOT happens to be — most
+# importantly, a DMG mount (/Volumes/Dockling/...), which vanishes the
+# moment it's ejected. install_launchd.sh points the launchd agent at this
+# copy, not at $BINARY directly, so auto-start keeps working after that —
+# same reasoning as why icon/sound resources get copied to ~/.dockling
+# instead of read from the checkout in place.
+INSTALLED_BINARY="$HOME/.dockling/bin/DocklingAgent"
+mkdir -p "$HOME/.dockling/bin"
+cp "$BINARY" "$INSTALLED_BINARY"
+chmod +x "$INSTALLED_BINARY"
+
 echo
 echo "Next: run the dispatcher (keep it running in the background):"
-echo "  $BINARY &"
+echo "  $INSTALLED_BINARY &"
 echo
 echo "Or set it up to start automatically at login:"
 echo "  ./install/install_launchd.sh"

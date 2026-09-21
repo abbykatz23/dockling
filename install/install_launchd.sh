@@ -5,9 +5,11 @@
 # first (this expects a release build to already exist).
 set -eu
 
-SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
-REPO_ROOT=$(cd "$SCRIPT_DIR/.." && pwd)
-BINARY="$REPO_ROOT/DocklingAgent/.build/release/DocklingAgent"
+# Points at install.sh's permanent copy, not the build output directly —
+# critical if install.sh was run from a mounted DMG, since that build
+# output path (/Volumes/Dockling/...) stops existing the moment the disk
+# image is ejected, which would silently break auto-start at next login.
+BINARY="$HOME/.dockling/bin/DocklingAgent"
 LABEL="com.dockling.dispatcher"
 PLIST="$HOME/Library/LaunchAgents/$LABEL.plist"
 LOG_DIR="$HOME/.dockling/logs"
