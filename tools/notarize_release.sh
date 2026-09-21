@@ -70,6 +70,16 @@ echo "Building DMG..."
 hdiutil create -volname "Dockling" -srcfolder "$STAGING" -ov -format UDZO "$DMG_PATH"
 rm -rf "$STAGING"
 
+# The binary inside is already signed, but the DMG *container* itself also
+# needs its own signature — without this, notarization and stapling both
+# still succeed, but the final spctl verification below (and, more
+# importantly, Gatekeeper's own "context:primary-signature" check on a
+# recipient's Mac) rejects it with "no usable signature". Must happen before
+# notarizing/stapling, not after — stapling embeds the ticket by modifying
+# the file, and signing afterward would invalidate that.
+echo "Signing the DMG itself..."
+codesign --force --timestamp --sign "$IDENTITY" "$DMG_PATH"
+
 echo "Notarizing (this polls Apple and can take a few minutes)..."
 xcrun notarytool submit "$DMG_PATH" --keychain-profile "$NOTARY_PROFILE" --wait
 
