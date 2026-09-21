@@ -19,6 +19,12 @@ import AVFoundation
 ///    `prepareToPlay()` primes that ahead of time — `warmUp()` calls it for
 ///    every known sound right at session startup, so that cost lands before
 ///    any real trigger needs the sound, not during it.
+///  - A single cached player per name still cut a sound short if the same
+///    sound fired twice in quick succession (two fast turns back to back,
+///    say): the second call's `currentTime = 0` yanked the first call's
+///    still-playing instance back to the start, discarding whatever was
+///    left of it. A small round-robin pool per name (see `poolSize`) gives
+///    overlapping triggers their own instance instead of fighting over one.
 enum SoundPlayer {
     private static let installedDir = ((((NSHomeDirectory() as NSString)
         .appendingPathComponent(".dockling") as NSString)
@@ -28,36 +34,52 @@ enum SoundPlayer {
     // Every sound Dockling currently triggers — warmUp() primes all of them
     // up front rather than waiting for whichever fires first.
     private static let knownNames = ["ready_dockling", "input_needed_dockling"]
+    // However many of the same sound could plausibly overlap at once — not
+    // meant to handle unbounded bursts, just enough that two (or a few)
+    // quick retriggers each get a clean, uninterrupted playback.
+    private static let poolSize = 3
 
-    private static var players: [String: AVAudioPlayer] = [:]
+    private static var pools: [String: [AVAudioPlayer]] = [:]
+    private static var nextIndex: [String: Int] = [:]
 
-    private static func loadedPlayer(_ name: String) -> AVAudioPlayer? {
-        if let cached = players[name] { return cached }
+    private static func pool(for name: String) -> [AVAudioPlayer] {
+        if let cached = pools[name] { return cached }
         let installedPath = (installedDir as NSString).appendingPathComponent("\(name).mp3")
-        let player: AVAudioPlayer?
+        let url: URL?
         if FileManager.default.fileExists(atPath: installedPath) {
-            player = try? AVAudioPlayer(contentsOf: URL(fileURLWithPath: installedPath))
+            url = URL(fileURLWithPath: installedPath)
         } else {
-            player = Bundle.module.url(forResource: name, withExtension: "mp3", subdirectory: "Resources/Sounds")
-                .flatMap { try? AVAudioPlayer(contentsOf: $0) }
+            url = Bundle.module.url(forResource: name, withExtension: "mp3", subdirectory: "Resources/Sounds")
         }
-        guard let player else {
+        guard let url else {
             fputs("warning: missing sound asset \(name)\n", stderr)
-            return nil
+            return []
         }
-        player.prepareToPlay()
-        players[name] = player
-        return player
+        let players = (0..<poolSize).compactMap { _ -> AVAudioPlayer? in
+            guard let player = try? AVAudioPlayer(contentsOf: url) else { return nil }
+            player.prepareToPlay()
+            return player
+        }
+        pools[name] = players
+        return players
     }
 
     /// Call once, early (session child startup), so every known sound's
     /// first-play cold start happens now instead of during a real event.
     static func warmUp() {
-        for name in knownNames { _ = loadedPlayer(name) }
+        for name in knownNames { _ = pool(for: name) }
     }
 
     static func play(_ name: String) {
-        guard let player = loadedPlayer(name) else { return }
+        let players = pool(for: name)
+        guard !players.isEmpty else { return }
+        // Prefer one that's actually free; round-robin as a fallback so a
+        // burst beyond poolSize still cycles through every instance rather
+        // than hammering just the last one.
+        let index = players.firstIndex(where: { !$0.isPlaying }) ?? (nextIndex[name, default: 0] % players.count)
+        nextIndex[name] = index + 1
+
+        let player = players[index]
         player.currentTime = 0
         player.play()
     }
