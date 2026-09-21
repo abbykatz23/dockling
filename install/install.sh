@@ -12,16 +12,29 @@ set -eu
 
 SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
 REPO_ROOT=$(cd "$SCRIPT_DIR/.." && pwd)
-
-command -v swift >/dev/null 2>&1 || {
-  echo "error: 'swift' is required but not found on PATH (install Xcode Command Line Tools: xcode-select --install)" >&2
-  exit 1
-}
-
-echo "Building Dockling (release)..."
-(cd "$REPO_ROOT/DocklingAgent" && swift build -c release)
-
 BINARY="$REPO_ROOT/DocklingAgent/.build/release/DocklingAgent"
+
+if command -v swift >/dev/null 2>&1; then
+  echo "Building Dockling (release)..."
+  (cd "$REPO_ROOT/DocklingAgent" && swift build -c release)
+  # A from-source dev build works fine unsigned, same as always — this only
+  # upgrades it to a real signature when a Developer ID identity happens to
+  # be in the keychain (e.g. this is a release checkout), since that's a
+  # prerequisite for notarizing later and costs nothing when there's no
+  # identity to sign with.
+  IDENTITY=$(security find-identity -v -p codesigning 2>/dev/null | grep "Developer ID Application" | head -1 | sed -E 's/.*"(.*)"/\1/')
+  if [ -n "$IDENTITY" ]; then
+    echo "Signing with $IDENTITY..."
+    codesign --force --options runtime --timestamp --sign "$IDENTITY" "$BINARY"
+  fi
+elif [ -x "$BINARY" ]; then
+  echo "'swift' not found on PATH — using the prebuilt binary already at $BINARY"
+else
+  echo "error: 'swift' is required but not found on PATH (install Xcode Command Line Tools: xcode-select --install)," >&2
+  echo "       and no prebuilt binary was found at $BINARY either." >&2
+  exit 1
+fi
+
 "$BINARY" --install --repo-root "$REPO_ROOT"
 
 echo
