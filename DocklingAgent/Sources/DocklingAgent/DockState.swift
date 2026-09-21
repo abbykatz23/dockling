@@ -16,6 +16,11 @@ enum DockState: String, CaseIterable, Codable {
     case pushing
     case testing
     case compressing
+    // Not reached from any hook event — DockIconController applies this on
+    // its own after .idle has sat unchanged for a while (see its
+    // idleTimeout). No art yet either; see DockIconController's setNow()
+    // comment for what "no art yet" does until there is.
+    case sleepy
 
     /// Bucket a Claude Code tool name (plus, for Bash, its actual command
     /// text) into one of the v1 tool-state buckets. `toolInput` is only

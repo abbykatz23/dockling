@@ -31,6 +31,14 @@ final class DockIconController {
     ]
     private let selfExpiring: Set<DockState> = [.eureka, .thumbsUp]
 
+    // A separate timer/slot from pendingWorkItem on purpose: that one holds
+    // whichever single delayed-apply is currently in flight (a minimum-hold
+    // delay, or a selfExpiring revert), and this one runs alongside it on an
+    // entirely different clock (minutes, not seconds) — sharing one slot
+    // would mean whichever fires last silently cancels the other.
+    private var idleTimer: DispatchWorkItem?
+    private let idleTimeout: TimeInterval = 5 * 60
+
     /// `scale`: draws each source image smaller within the same canvas size
     /// (rather than shrinking the canvas itself, per the spec's "keep canvas
     /// size ... consistent across all poses" guidance) — used to render a
@@ -105,6 +113,8 @@ final class DockIconController {
         // next farewell frame overwrites it again.
         pendingWorkItem?.cancel()
         pendingWorkItem = nil
+        idleTimer?.cancel()
+        idleTimer = nil
 
         guard let baseImage = cache[.butt] else {
             completion()
@@ -155,6 +165,12 @@ final class DockIconController {
     }
 
     private func setNow(_ state: DockState) {
+        // Any state transition attempt — even one with no art yet to show —
+        // is real activity, so it always cancels a pending sleepy timeout,
+        // not just successful ones.
+        idleTimer?.cancel()
+        idleTimer = nil
+
         guard let image = cache[state] else {
             // Logged even though there's no image for it yet (a bucket can
             // be wired up in DockState before its art lands — see
@@ -174,6 +190,12 @@ final class DockIconController {
             let work = DispatchWorkItem { [weak self] in self?.setNow(.idle) }
             pendingWorkItem = work
             DispatchQueue.main.asyncAfter(deadline: .now() + hold, execute: work)
+        }
+
+        if state == .idle {
+            let work = DispatchWorkItem { [weak self] in self?.setNow(.sleepy) }
+            idleTimer = work
+            DispatchQueue.main.asyncAfter(deadline: .now() + idleTimeout, execute: work)
         }
     }
 }
