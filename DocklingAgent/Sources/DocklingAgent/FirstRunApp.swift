@@ -142,55 +142,11 @@ final class FirstRunDelegate: NSObject, NSApplicationDelegate {
             return checkbox
         }
 
-        let subagentDucksCheckbox = makeCheckbox("Show a smaller duck for each subagent", isOn: config.subagentDucks)
+        let subagentDucksCheckbox = makeCheckbox("Show a baby duck for each subagent", isOn: config.subagentDucks)
         let focusVSCodeCheckbox = makeCheckbox("Focus Claude session when clicking duck (asks for Accessibility access)", isOn: config.focusVSCodeOnClick)
 
-        let commitPoseLabel = NSTextField(labelWithString: "Duck shown for a commit:")
-
-        // A small preview of the actual pose art beside each option, rather
-        // than asking someone to recognize "bride"/"groom" as plain text —
-        // yellow specifically since that's the one color always bundled at
-        // full quality (see DUCK_IMAGES' own reasoning on the landing page).
-        func poseImage(_ name: String) -> NSImage? {
-            guard let url = AssetResolver.resolveURL(name: name, ext: "png", subdir: "yellow") else { return nil }
-            return NSImage(contentsOf: url)
-        }
-        func menuIcon(_ images: [NSImage?], size: CGFloat = 20) -> NSImage? {
-            let images = images.compactMap { $0 }
-            guard !images.isEmpty else { return nil }
-            let icon = NSImage(size: NSSize(width: size * CGFloat(images.count), height: size))
-            icon.lockFocus()
-            for (index, image) in images.enumerated() {
-                image.draw(in: NSRect(x: CGFloat(index) * size, y: 0, width: size, height: size), from: .zero, operation: .sourceOver, fraction: 1)
-            }
-            icon.unlockFocus()
-            return icon
-        }
-        let brideImage = poseImage("committing-bride")
-        let groomImage = poseImage("committing-groom")
-
-        let commitPosePopup = NSPopUpButton()
-        commitPosePopup.addItem(withTitle: "Bride/Groom")
-        commitPosePopup.lastItem?.image = menuIcon([brideImage, groomImage])
-        commitPosePopup.addItem(withTitle: "Bride")
-        commitPosePopup.lastItem?.image = menuIcon([brideImage])
-        commitPosePopup.addItem(withTitle: "Groom")
-        commitPosePopup.lastItem?.image = menuIcon([groomImage])
-        switch config.commitPose {
-        case .random: commitPosePopup.selectItem(at: 0)
-        case .bride: commitPosePopup.selectItem(at: 1)
-        case .groom: commitPosePopup.selectItem(at: 2)
-        }
-        let commitPoseRowHeight: CGFloat = 24
-        let commitPoseRow = NSStackView(views: [commitPoseLabel, commitPosePopup])
-        commitPoseRow.orientation = .horizontal
-        commitPoseRow.spacing = 8
-        commitPoseRow.translatesAutoresizingMaskIntoConstraints = false
-        commitPoseRow.heightAnchor.constraint(equalToConstant: commitPoseRowHeight).isActive = true
-        rowHeights.append(commitPoseRowHeight)
-
         let stackSpacing: CGFloat = 12
-        let stack = NSStackView(views: [subagentDucksCheckbox, focusVSCodeCheckbox, commitPoseRow])
+        let stack = NSStackView(views: [subagentDucksCheckbox, focusVSCodeCheckbox])
         stack.orientation = .vertical
         stack.alignment = .leading
         stack.spacing = stackSpacing
@@ -215,15 +171,8 @@ final class FirstRunDelegate: NSObject, NSApplicationDelegate {
 
         guard alert.runModal() == .alertFirstButtonReturn else { return nil }
 
-        let commitPose: DocklingConfig.CommitPose
-        switch commitPosePopup.indexOfSelectedItem {
-        case 1: commitPose = .bride
-        case 2: commitPose = .groom
-        default: commitPose = .random
-        }
         return DocklingConfig(
             subagentDucks: subagentDucksCheckbox.state == .on,
-            commitPose: commitPose,
             focusVSCodeOnClick: focusVSCodeCheckbox.state == .on
         )
     }

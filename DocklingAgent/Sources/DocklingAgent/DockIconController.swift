@@ -47,18 +47,15 @@ final class DockIconController {
         // .committing has two separate assets (committing-bride.png,
         // committing-groom.png — see generate_dock_icons.swift) rather than
         // one file at its own rawValue; which one actually backs the state
-        // is resolved once here, per config, rather than per lookup, so a
-        // "random" pick stays the same duck for this whole process's life
-        // instead of flip-flopping on every commit.
-        let resolvedCommitPose: DocklingConfig.CommitPose = dockingConfig.commitPose == .random
-            ? (Bool.random() ? .bride : .groom)
-            : dockingConfig.commitPose
-        if dockingConfig.commitPose == .random {
-            fputs("[dockling] resolved random commit_pose -> \(resolvedCommitPose.rawValue)\n", stderr)
-        }
+        // is resolved once here, randomly, rather than per lookup, so the
+        // pick stays the same duck for this whole process's life instead of
+        // flip-flopping on every commit. Not configurable — always both,
+        // picked randomly, no option to pin one or the other.
+        let resolvedCommitPose = Bool.random() ? "bride" : "groom"
+        fputs("[dockling] resolved commit pose -> \(resolvedCommitPose)\n", stderr)
 
         for state in DockState.allCases {
-            let assetName = state == .committing ? "committing-\(resolvedCommitPose.rawValue)" : state.rawValue
+            let assetName = state == .committing ? "committing-\(resolvedCommitPose)" : state.rawValue
 
             let image = AssetResolver.resolveURL(name: assetName, ext: "png", subdir: color).flatMap(NSImage.init(contentsOf:))
 

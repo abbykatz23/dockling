@@ -9,7 +9,7 @@ See [DOCKLING_SPEC.md](./DOCKLING_SPEC.md) for the full design rationale. This R
 - One Dock icon per active Claude Code session (not one aggregate icon), driven by Claude Code's [hook system](https://docs.claude.com/en/docs/claude-code/hooks).
 - Each session's duck gets a random color from a 9-color pool, avoiding colors currently in use by other active sessions; that color is then remembered per project (see [Per-project colors](#per-project-colors)).
 - Hovering a Dock icon shows the project name.
-- Poses: idle, bash (construction), edit (coding), search (detective), other-tool, awaiting-input, error, eureka (task completed), committing (bride or groom formalwear, for `git commit` — see [Configuration](#configuration)), pulling (fishing, for `git pull`), pushing (box, for `git push`), testing (scientist, for running a test suite — `pytest`, `jest`, `npm test`, and similar), compressing (squished, for `zip`/`tar`/`gzip`/etc. — also shown when Claude Code compacts its own context), sleepy (pajamas, shown automatically once idle has sat unchanged for 5 minutes — any activity wakes the duck right back up), butt (farewell — shown for 1.5s right before the duck exits on session end).
+- Poses: idle, bash (construction), edit (coding), search (detective), other-tool, awaiting-input, error, eureka (task completed), committing (bride or groom formalwear, for `git commit` — picked randomly once per session/subagent process, not configurable), pulling (fishing, for `git pull`), pushing (box, for `git push`), testing (scientist, for running a test suite — `pytest`, `jest`, `npm test`, and similar), compressing (squished, for `zip`/`tar`/`gzip`/etc. — also shown when Claude Code compacts its own context), sleepy (pajamas, shown automatically once idle has sat unchanged for 5 minutes — any activity wakes the duck right back up), butt (farewell — shown for 1.5s right before the duck exits on session end).
 - Sound effects: a short cue plays when a session becomes ready for your next message (any `Stop`, whichever pose shows first), and another when it's specifically waiting on you to answer something (`Notification` → awaiting-input).
 - Each subagent a session spawns gets its own duck too — same color as its parent, 80% her size — that appears while the subagent's working and disappears shortly after it reports back. See [Subagent ("baby") ducks](#subagent-baby-ducks). Can be turned off — see [Configuration](#configuration).
 
@@ -23,7 +23,7 @@ See [DOCKLING_SPEC.md](./DOCKLING_SPEC.md) for the full design rationale. This R
 ### Option A: download (no Terminal, no Swift toolchain)
 
 1. Download the latest signed, notarized DMG from [Releases](https://github.com/abbykatz23/dockling/releases), open it, and drag Dockling to Applications.
-2. Double-click Dockling in Applications and click **Install**. You'll be asked to confirm a few settings first (subagent ducks, commit pose, and whether to enable click-to-focus-VS-Code — the last one asks macOS for Accessibility access, so it's opt-in and unchecked by default). Installing wires Dockling into `~/.claude/settings.json` so *every* Claude Code session on your machine reports its state — not just sessions run from inside a checkout of this repo — and registers it to start automatically at login. Re-running this (double-click again → Reinstall) is always safe.
+2. Double-click Dockling in Applications and click **Install**. You'll be asked to confirm a few settings first (whether to show a baby duck for each subagent, and whether to enable click-to-focus-VS-Code — the last one asks macOS for Accessibility access, so it's opt-in and unchecked by default). Installing wires Dockling into `~/.claude/settings.json` so *every* Claude Code session on your machine reports its state — not just sessions run from inside a checkout of this repo — and registers it to start automatically at login. Re-running this (double-click again → Reinstall) is always safe.
 3. Start or continue any Claude Code session. A duck appears in the Dock once the session's first hook fires (`SessionStart`, or the first tool call in some clients).
 
 To uninstall, double-click Dockling in Applications again and click **Uninstall** — see [Uninstalling](#uninstalling).
@@ -103,13 +103,11 @@ Create `~/.dockling/config.json` to change any of these (missing keys/file fall 
 ```json
 {
   "subagent_ducks": false,
-  "commit_pose": "bride",
   "focus_vscode_on_click": true
 }
 ```
 
 - `subagent_ducks` (default `true`): when off, subagents don't get their own duck, and their activity has no effect on mama's icon either — it's as if they're invisible. The whole family-relaunch mechanism (see below) also never triggers, since it exists solely to keep babies grouped with mama.
-- `commit_pose` (default `"random"`): which formalwear pose shows while a `git commit` is running — `"bride"`, `"groom"`, or `"random"` (picked once per session/subagent process, not re-rolled on every commit).
 - `focus_vscode_on_click` (default `false`): when on, clicking a duck for a session with no tmux pane (most likely the VS Code panel) raises that project's VS Code window. Requires macOS Accessibility access — asked for once, the first time the dispatcher starts with this on. When off (the default), that permission is never requested and the feature never runs. The GUI installer's customize step asks about this explicitly; a from-source install leaves it off unless you set it here.
 
 Read once at process startup (dispatcher and every session child each load their own copy), so a change takes effect on the next restart, not live.

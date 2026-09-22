@@ -7,14 +7,7 @@ import Foundation
 /// Everything defaults on except focusVSCodeOnClick (see its own doc
 /// comment for why).
 struct DocklingConfig {
-    enum CommitPose: String, Decodable {
-        case bride
-        case groom
-        case random
-    }
-
     var subagentDucks: Bool
-    var commitPose: CommitPose
     // Gates both WindowFocus.requestPermissionIfNeeded() (asked once, at
     // dispatcher startup) and the click-to-focus-VS-Code feature itself —
     // Accessibility is a sensitive-sounding permission with no other use in
@@ -22,16 +15,14 @@ struct DocklingConfig {
     // toggle defaulted on) via FirstRunApp's customize step.
     var focusVSCodeOnClick: Bool
 
-    static let `default` = DocklingConfig(subagentDucks: true, commitPose: .random, focusVSCodeOnClick: false)
+    static let `default` = DocklingConfig(subagentDucks: true, focusVSCodeOnClick: false)
 
     private struct Raw: Decodable {
         let subagentDucks: Bool?
-        let commitPose: CommitPose?
         let focusVSCodeOnClick: Bool?
 
         enum CodingKeys: String, CodingKey {
             case subagentDucks = "subagent_ducks"
-            case commitPose = "commit_pose"
             case focusVSCodeOnClick = "focus_vscode_on_click"
         }
     }
@@ -47,7 +38,6 @@ struct DocklingConfig {
         }
         return DocklingConfig(
             subagentDucks: raw.subagentDucks ?? true,
-            commitPose: raw.commitPose ?? .random,
             focusVSCodeOnClick: raw.focusVSCodeOnClick ?? false
         )
     }
@@ -60,7 +50,6 @@ struct DocklingConfig {
     func save() {
         let dict: [String: Any] = [
             "subagent_ducks": subagentDucks,
-            "commit_pose": commitPose.rawValue,
             "focus_vscode_on_click": focusVSCodeOnClick,
         ]
         guard let data = try? JSONSerialization.data(withJSONObject: dict, options: [.prettyPrinted, .sortedKeys]) else { return }

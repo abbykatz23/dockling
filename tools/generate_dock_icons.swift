@@ -251,10 +251,9 @@ let poseForState: [(output: String, adjective: String)] = [
     ("error", "angry"),
     ("edit", "coding"),
     ("butt", "butt"),
-    // Two separate outputs, not one — DockIconController resolves which
-    // asset actually backs .committing at load time (config: commit_pose),
-    // so both need to exist as their own file rather than picking a winner
-    // here.
+    // Two separate outputs, not one — DockIconController picks one at
+    // random at load time (not configurable), so both need to exist as
+    // their own file rather than picking a winner here.
     ("committing-groom", "groom"),
     ("committing-bride", "bride"),
     ("pulling", "fishing"),
