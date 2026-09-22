@@ -387,6 +387,14 @@
     letter.addEventListener("mouseenter", function () {
       currentColor = color;
       applyDuckImage();
+      // Idle is showing already (line above), but angry and sleepy for
+      // this color are still completely unfetched at this point — without
+      // this, dragging her (or just leaving her be for 60s) right after
+      // hovering a new color meant a real, visible delay the first time
+      // that pose was actually needed, waiting on a fetch that only just
+      // started.
+      prefetchPose(color, "angry");
+      prefetchPose(color, "sleepy");
     });
     letter.addEventListener("mouseleave", function () {
       currentColor = stickyColor;
@@ -396,9 +404,6 @@
       stickyColor = color;
       currentColor = color;
       applyDuckImage();
-      // So the sleepy pose is already cached by the time she'd actually
-      // need it, same reasoning as the default color's own prefetch.
-      prefetchPose(color, "sleepy");
     });
   });
 })();
