@@ -195,22 +195,33 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
         return box
     }
 
-    // Two-slot icon area on every row, not just however many assets this
-    // particular row has: a single icon centered by NSStackView's own
-    // gravity-area distribution inside a wider group would land at a
-    // different x-position than the two-icon committing row's icons,
-    // throwing every label out of alignment with each other. An unfilled
-    // slot is an empty, image-less NSImageView the same size as a real
-    // one — invisible, but it still occupies its spot in the layout.
+    // A plain NSView with every edge pinned explicitly, not nested
+    // NSStackViews — a horizontal stack-of-stacks here (icon-pair stack
+    // inside a row stack, inside the vertical document stack) left some
+    // rows' labels with an underdetermined position, and different rows
+    // resolved that ambiguity differently: some left-aligned, some pinned
+    // to the far trailing edge instead (confirmed happening — a real,
+    // reported-back regression, not a hypothetical). Every anchor below is
+    // either a fixed constant or tied straight back to `row`'s own edges,
+    // so there's exactly one valid layout, not several AppKit could pick
+    // between.
+    //
+    // Two icon slots on every row, not just however many assets this
+    // particular row has, so every label — including committing's, the
+    // only row with two real icons — starts at the same x position. An
+    // unfilled slot is an empty, image-less NSImageView the same size as
+    // a real one, invisible but still occupying its spot.
     private func makeLegendRow(assetNames: [String], label text: String) -> NSView {
-        let slots = (0..<2).map { index -> NSImageView in
+        let iconSize: CGFloat = 28
+        let iconGap: CGFloat = 4
+        let labelGap: CGFloat = 6
+
+        let slots = (0..<2).map { index -> LegendImageView in
             let assetName = index < assetNames.count ? assetNames[index] : nil
             let imageView = LegendImageView(assetName: assetName)
             imageView.image = assetName.flatMap(Self.duckImage)
             imageView.imageScaling = .scaleProportionallyUpOrDown
             imageView.translatesAutoresizingMaskIntoConstraints = false
-            imageView.widthAnchor.constraint(equalToConstant: 28).isActive = true
-            imageView.heightAnchor.constraint(equalToConstant: 28).isActive = true
             if assetName != nil {
                 imageView.toolTip = "Double-click to enlarge"
                 let click = NSClickGestureRecognizer(target: self, action: #selector(self.legendImageDoubleClicked(_:)))
@@ -219,16 +230,34 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
             }
             return imageView
         }
-        let iconGroup = NSStackView(views: slots)
-        iconGroup.orientation = .horizontal
-        iconGroup.spacing = 4
-        iconGroup.translatesAutoresizingMaskIntoConstraints = false
+        let label = makeLabel(text)
 
-        let row = NSStackView(views: [iconGroup, makeLabel(text)])
-        row.orientation = .horizontal
-        row.alignment = .centerY
-        row.spacing = 10
+        let row = NSView()
         row.translatesAutoresizingMaskIntoConstraints = false
+        row.addSubview(slots[0])
+        row.addSubview(slots[1])
+        row.addSubview(label)
+
+        NSLayoutConstraint.activate([
+            row.heightAnchor.constraint(equalToConstant: iconSize),
+
+            slots[0].leadingAnchor.constraint(equalTo: row.leadingAnchor),
+            slots[0].centerYAnchor.constraint(equalTo: row.centerYAnchor),
+            slots[0].widthAnchor.constraint(equalToConstant: iconSize),
+            slots[0].heightAnchor.constraint(equalToConstant: iconSize),
+
+            slots[1].leadingAnchor.constraint(equalTo: slots[0].trailingAnchor, constant: iconGap),
+            slots[1].centerYAnchor.constraint(equalTo: row.centerYAnchor),
+            slots[1].widthAnchor.constraint(equalToConstant: iconSize),
+            slots[1].heightAnchor.constraint(equalToConstant: iconSize),
+
+            label.leadingAnchor.constraint(equalTo: slots[1].trailingAnchor, constant: labelGap),
+            label.centerYAnchor.constraint(equalTo: row.centerYAnchor),
+            // Ties row's own width to its content (leading pinned above,
+            // trailing pinned here) rather than leaving it derived from
+            // nothing — the exact gap this whole rewrite exists to close.
+            label.trailingAnchor.constraint(equalTo: row.trailingAnchor),
+        ])
         return row
     }
 

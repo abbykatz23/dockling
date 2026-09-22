@@ -92,17 +92,15 @@ final class FirstRunDelegate: NSObject, NSApplicationDelegate {
         done.runModal()
     }
 
+    // No separate "customize your settings" step before this: it used to
+    // ask via its own dialog, then immediately open the settings window
+    // (which shows those exact same two checkboxes) right after — asking
+    // once and then appearing to ask again read as broken, not thorough.
+    // Installs with whatever's already on disk (DocklingConfig.load()
+    // falls back to .default on a genuinely fresh install), and the
+    // settings window that opens right after is where those get changed,
+    // same as any other time it's opened.
     private func install() {
-        // Pre-filled from whatever's already on disk (DocklingConfig.load()
-        // falls back to .default, e.g. everything on, if this is a genuinely
-        // fresh install) — so re-running Install/Reinstall doesn't silently
-        // reset a returning user's prior choices back to defaults.
-        guard let config = showCustomize(startingFrom: DocklingConfig.load()) else {
-            NSApp.terminate(nil)
-            return
-        }
-        config.save()
-
         do {
             try Installer.run()
         } catch {
@@ -116,81 +114,6 @@ final class FirstRunDelegate: NSObject, NSApplicationDelegate {
             return
         }
         openSettingsWindow(welcomeMessage: "You're all set! Start or continue any Claude Code session to see your duck. Here's what each pose means:")
-    }
-
-    /// Lets the user opt in/out of each feature before anything is actually
-    /// installed — in particular, whether to request Accessibility access at
-    /// all (see DocklingConfig.focusVSCodeOnClick), since that's a real
-    /// system permission prompt with no explanation of its own otherwise.
-    /// Returns nil on Cancel. Values live in ~/.dockling/config.json
-    /// afterward and can be hand-edited there too — this is just a friendlier
-    /// front door for the same file.
-    private func showCustomize(startingFrom config: DocklingConfig) -> DocklingConfig? {
-        let alert = NSAlert()
-        alert.messageText = "Customize Dockling"
-        alert.informativeText = "You can change these later by editing ~/.dockling/config.json."
-        alert.addButton(withTitle: "Continue")
-        alert.addButton(withTitle: "Cancel")
-
-        let rowWidth: CGFloat = 400
-        let checkboxFont = NSFont.systemFont(ofSize: NSFont.systemFontSize)
-        var rowHeights: [CGFloat] = []
-
-        // NSButton's own intrinsic size assumes a single line unless told
-        // otherwise — without wraps=true plus an explicit, measured height,
-        // a title longer than the row fits just gets truncated ("Asks for
-        // accessibility a…", confirmed happening) rather than wrapping.
-        func makeCheckbox(_ title: String, isOn: Bool) -> NSButton {
-            let checkbox = NSButton(checkboxWithTitle: title, target: nil, action: nil)
-            checkbox.state = isOn ? .on : .off
-            (checkbox.cell as? NSButtonCell)?.wraps = true
-            checkbox.translatesAutoresizingMaskIntoConstraints = false
-            checkbox.widthAnchor.constraint(equalToConstant: rowWidth).isActive = true
-            let textWidth = rowWidth - 22 // checkbox glyph + its own leading gap
-            let textHeight = ceil((title as NSString).boundingRect(
-                with: NSSize(width: textWidth, height: .greatestFiniteMagnitude),
-                options: [.usesLineFragmentOrigin, .usesFontLeading],
-                attributes: [.font: checkboxFont]
-            ).height)
-            let rowHeight = max(18, textHeight + 2)
-            checkbox.heightAnchor.constraint(greaterThanOrEqualToConstant: rowHeight).isActive = true
-            rowHeights.append(rowHeight)
-            return checkbox
-        }
-
-        let subagentDucksCheckbox = makeCheckbox("Show a baby duck for each subagent", isOn: config.subagentDucks)
-        let focusVSCodeCheckbox = makeCheckbox("Focus Claude session when clicking duck (asks for Accessibility access)", isOn: config.focusVSCodeOnClick)
-
-        let stackSpacing: CGFloat = 12
-        let stack = NSStackView(views: [subagentDucksCheckbox, focusVSCodeCheckbox])
-        stack.orientation = .vertical
-        stack.alignment = .leading
-        stack.spacing = stackSpacing
-        stack.translatesAutoresizingMaskIntoConstraints = false
-
-        // NSAlert sizes its accessory area off the view's own `frame`, not
-        // off NSStackView's constraint-derived intrinsic size — without an
-        // explicitly framed container, the accessory area collapses to
-        // near-zero height and its content overlaps the alert's own text
-        // instead of sitting in its own space below it (confirmed
-        // happening: exactly this overlap, in the shipped customize step).
-        let totalHeight = rowHeights.reduce(0, +) + stackSpacing * CGFloat(rowHeights.count - 1)
-        let container = NSView(frame: NSRect(x: 0, y: 0, width: rowWidth, height: totalHeight))
-        container.addSubview(stack)
-        NSLayoutConstraint.activate([
-            stack.leadingAnchor.constraint(equalTo: container.leadingAnchor),
-            stack.trailingAnchor.constraint(lessThanOrEqualTo: container.trailingAnchor),
-            stack.topAnchor.constraint(equalTo: container.topAnchor),
-            stack.bottomAnchor.constraint(equalTo: container.bottomAnchor),
-        ])
-        alert.accessoryView = container
-
-        guard alert.runModal() == .alertFirstButtonReturn else { return nil }
-
-        return DocklingConfig(
-            subagentDucks: subagentDucksCheckbox.state == .on,
-            focusVSCodeOnClick: focusVSCodeCheckbox.state == .on
-        )
     }
 
     private func showError(_ message: String, terminate: Bool = true) {
