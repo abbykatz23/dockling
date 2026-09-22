@@ -21,14 +21,11 @@ fi
 
 mkdir -p "$HOME/Library/LaunchAgents" "$LOG_DIR"
 
-# PATH is deliberately explicit and includes both Homebrew prefixes: launchd
-# agents don't inherit your shell's PATH, and the reply-from-Dock feature
-# shells out to `tmux`, which on most Macs is a Homebrew install.
-#
 # --dispatcher tells main.swift this is the real, headless, long-running
 # dispatcher, as opposed to a plain double-click in Finder (which shows the
 # first-run install UI instead) — both otherwise call the same binary with
-# no other arguments.
+# no other arguments. No PATH override needed: everything Dockling shells
+# out to (xattr, pgrep, osascript, launchctl) is invoked by absolute path.
 cat > "$PLIST" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -41,11 +38,6 @@ cat > "$PLIST" <<EOF
         <string>$BINARY</string>
         <string>--dispatcher</string>
     </array>
-    <key>EnvironmentVariables</key>
-    <dict>
-        <key>PATH</key>
-        <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
-    </dict>
     <key>RunAtLoad</key>
     <true/>
     <key>KeepAlive</key>

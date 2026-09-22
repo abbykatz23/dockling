@@ -6,8 +6,7 @@ import Network
 /// each per-session child (its own ephemeral port, forwarded events only).
 /// Requires a `?token=` query param matching the per-install secret (see
 /// Secret.swift) on every request — otherwise any other local process could
-/// POST a fake event or trigger a fake reply popover (DOCKLING_SPEC.md's
-/// "local channel auth" requirement).
+/// POST a fake event (DOCKLING_SPEC.md's "local channel auth" requirement).
 final class HookServer {
     private let port: NWEndpoint.Port
     private let expectedToken: String
@@ -146,42 +145,9 @@ struct HookEvent {
     let toolName: String?
     let toolInput: [String: Any]? // PreToolUse only: the tool's arguments, e.g. {"command": "..."} for Bash
     let tmuxPane: String? // only present on the SessionStart command hook — see report_session_start.sh
-    let message: String? // Notification only: a generic string like "Claude needs your permission" — not the specific question
-    let notificationType: String? // Notification only: "permission_prompt", "idle_prompt", etc.
     let cwd: String? // present on every event; used to name the Dock tile after the project
     let agentID: String? // present only on events from a subagent's own tool calls, not the top-level session's
     let agentType: String? // e.g. "general-purpose" — present alongside agentID
-
-    /// A human-readable description of what a tool call is about to do, built
-    /// from tool_name + tool_input. Notification events don't carry this
-    /// themselves (their `message` is generic), so the caller remembers the
-    /// most recent PreToolUse's description to show a real question instead.
-    var toolDescription: String? {
-        guard let toolName, let toolInput else { return toolName }
-        switch toolName {
-        case "Bash":
-            return (toolInput["command"] as? String).map { "Run: \($0)" }
-        case "Edit", "Write", "NotebookEdit", "MultiEdit":
-            return (toolInput["file_path"] as? String).map { "Edit: \($0)" }
-        case "Grep", "Glob":
-            return (toolInput["pattern"] as? String).map { "Search: \($0)" }
-        case "WebSearch":
-            return (toolInput["query"] as? String).map { "Web search: \($0)" }
-        case "WebFetch":
-            return (toolInput["url"] as? String).map { "Fetch: \($0)" }
-        case "AskUserQuestion":
-            guard let question = (toolInput["questions"] as? [[String: Any]])?.first,
-                  let text = question["question"] as? String else {
-                return toolName
-            }
-            let options = (question["options"] as? [[String: Any]])?.compactMap { $0["label"] as? String } ?? []
-            guard !options.isEmpty else { return text }
-            let numbered = options.enumerated().map { "\($0.offset + 1). \($0.element)" }
-            return ([text] + numbered).joined(separator: "\n")
-        default:
-            return toolName
-        }
-    }
 
     init?(json: [String: Any]) {
         guard let name = json["hook_event_name"] as? String else { return nil }
@@ -189,8 +155,6 @@ struct HookEvent {
         self.sessionID = json["session_id"] as? String
         self.toolName = json["tool_name"] as? String
         self.toolInput = json["tool_input"] as? [String: Any]
-        self.message = json["message"] as? String
-        self.notificationType = json["notification_type"] as? String
         self.cwd = json["cwd"] as? String
         self.agentID = json["agent_id"] as? String
         self.agentType = json["agent_type"] as? String

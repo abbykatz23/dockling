@@ -143,7 +143,6 @@ final class FirstRunDelegate: NSObject, NSApplicationDelegate {
         }
 
         let subagentDucksCheckbox = makeCheckbox("Show a smaller duck for each subagent", isOn: config.subagentDucks)
-        let replyPopoverCheckbox = makeCheckbox("Reply to Claude by clicking its Dock icon", isOn: config.replyPopover)
         let focusVSCodeCheckbox = makeCheckbox("Focus Claude session when clicking duck (asks for Accessibility access)", isOn: config.focusVSCodeOnClick)
 
         let commitPoseLabel = NSTextField(labelWithString: "Duck shown for a commit:")
@@ -191,7 +190,7 @@ final class FirstRunDelegate: NSObject, NSApplicationDelegate {
         rowHeights.append(commitPoseRowHeight)
 
         let stackSpacing: CGFloat = 12
-        let stack = NSStackView(views: [subagentDucksCheckbox, replyPopoverCheckbox, focusVSCodeCheckbox, commitPoseRow])
+        let stack = NSStackView(views: [subagentDucksCheckbox, focusVSCodeCheckbox, commitPoseRow])
         stack.orientation = .vertical
         stack.alignment = .leading
         stack.spacing = stackSpacing
@@ -224,7 +223,6 @@ final class FirstRunDelegate: NSObject, NSApplicationDelegate {
         }
         return DocklingConfig(
             subagentDucks: subagentDucksCheckbox.state == .on,
-            replyPopover: replyPopoverCheckbox.state == .on,
             commitPose: commitPose,
             focusVSCodeOnClick: focusVSCodeCheckbox.state == .on
         )

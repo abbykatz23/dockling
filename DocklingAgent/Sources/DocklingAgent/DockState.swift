@@ -9,7 +9,6 @@ enum DockState: String, CaseIterable, Codable {
     case awaitingInput = "awaiting-input"
     case error
     case eureka
-    case thumbsUp = "thumbs-up"
     case butt
     case committing
     case pulling

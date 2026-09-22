@@ -37,9 +37,7 @@ The entire experience lives on-device: no hosted website, no accounts, no server
 1. **Hook receiver** — listens for Claude Code hook events (PreToolUse, Notification, Stop, etc.).
 2. **Per-session process spawning** — each active Claude Code session gets its own lightweight process instance so it can own a distinct Dock icon (see State design).
 3. **Dock icon updater** — swaps/redraws each session's Dock icon based on its current state bucket.
-4. **Reply mechanism** — replaces the earlier browser-based idea entirely. When a session enters "awaiting input," clicking its Dock icon opens a small native popover (in the style of Masko Code's speech-bubble UI) showing the question and a text field, right on top of the Dock. Submitting runs through a **tmux bridge**: the terminal running `claude` is wrapped in a tmux session, and the popover's submission is delivered via `tmux send-keys`.
-
-**Known scope limit:** the tmux bridge only reaches a real shell process. It works for the CLI run in any plain terminal (including VS Code's *integrated* terminal), but not the dedicated Claude Code VS Code extension panel (a webview, not a tmux-reachable pane) — that would need its own, separate integration and is out of scope for v1.
+4. ~~**Reply mechanism**~~ — **removed.** Built, shipped, then removed: a native popover (in the style of Masko Code's speech-bubble UI) delivered text back into a session's terminal via a tmux bridge (`tmux send-keys`, the session's shell wrapped in tmux by a PATH shim). Judged not worth the complexity — it only ever reached a real shell process (never the VS Code panel, a webview with no tmux-reachable pane), and depended on a PATH shim nobody had actually wired into the installer. See the git history around the commit removing `ReplyPanel.swift`/`TmuxReply.swift`/`shim/` for the full implementation, if this is ever worth revisiting.
 
 ## Character & asset system
 
@@ -68,9 +66,8 @@ The entire experience lives on-device: no hosted website, no accounts, no server
 
 Everything is on-device (no hosted server), which removes most of what would otherwise be a concern. What's left:
 
-- **Local channel auth:** hooks need a way to notify the running app (localhost HTTP endpoint, Unix socket, or a watched file). Whichever is chosen, it requires a per-install shared secret so no other local process can spoof hook events or trigger a fake reply popover.
-- **Session attribution:** replies are injected via tmux into a specific pane, so session-ID tracking has to be reliable — a misrouted reply (e.g. approving a permission prompt) could land in the wrong project's terminal, which is a correctness bug with real consequences, not just an annoyance.
-- **tmux's existing boundary:** its control socket is already scoped to the current OS user by file permissions, so this doesn't introduce new cross-user risk.
+- **Local channel auth:** hooks need a way to notify the running app (localhost HTTP endpoint, Unix socket, or a watched file). Whichever is chosen, it requires a per-install shared secret so no other local process can spoof hook events.
+- ~~**Session attribution:** replies are injected via tmux into a specific pane...~~ / ~~**tmux's existing boundary**~~ — both moot now that the reply mechanism (above) is removed.
 - **Hook installation:** auto-registering into `~/.claude/settings.json` must be a clean merge that never clobbers the user's existing hooks (established pattern, per Claude Status Bar / Code Island).
 - **Distribution trust:** Developer ID signing + notarization, so Gatekeeper doesn't block or scare off installs.
 
@@ -110,11 +107,7 @@ Everything is on-device (no hosted server), which removes most of what would oth
 - Per-project pinning (local agent config, with project-local dotfile override)
 - Swap static PNGs for full animation via adapted Shimeji-ee / Shijima-Qt packs
 
-**Phase 3 — reply from the Dock:**
-
-- Native popover on click during "awaiting input," showing the question + text field
-- tmux bridge: wrap the terminal session, deliver replies via `tmux send-keys`
-- Session-ID routing hardened so replies can't land in the wrong project's terminal
+**Phase 3 — reply from the Dock:** shipped, then removed — see "Reply mechanism" under Local agent architecture above.
 
 **Phase 4 — public launch polish:**
 

@@ -43,14 +43,9 @@ final class SessionChildDelegate: NSObject, NSApplicationDelegate {
     private let dockIcon: DockIconController
     private var server: HookServer?
     private let hookForwarder = HookForwarder()
-    private var tmuxPane: String? // learned from SessionStart; needed to send a reply via `tmux send-keys`
-    private var pendingQuestion: String = "Claude is waiting for your input."
-    private var lastToolDescription: String? // remembered from the most recent PreToolUse, since Notification's own message is generic
+    private var tmuxPane: String? // learned from SessionStart — used to tell a real terminal session apart from the VS Code panel, which has none
     private var didWorkThisTurn = false // set on PreToolUse, reset on UserPromptSubmit — see the "Stop" case for why
     private var lastCwd: String? // remembered from whichever event last carried one — used to find this project's VS Code window on click
-    private lazy var replyPanel = ReplyPanelController { [weak self] text in
-        self?.submitReply(text)
-    }
 
     // Mama-only state (babies never populate these).
     private var babies: [String: Baby] = [:] // agent_id -> baby
@@ -69,33 +64,14 @@ final class SessionChildDelegate: NSObject, NSApplicationDelegate {
     }
 
     /// Clicking the Dock icon while there are no visible windows routes here.
-    /// If this session has no tmux pane (i.e. isn't a terminal session
-    /// wrapped by the shim — most likely the VS Code panel), asks the
-    /// dispatcher to raise the matching VS Code window, since Accessibility
-    /// permission is only granted there, not per-project. Also pops the
-    /// reply panel while actually awaiting input — otherwise a click just
-    /// activates the (windowless) app, same as any other Dock icon.
+    /// If this session has no tmux pane (most likely the VS Code panel),
+    /// asks the dispatcher to raise the matching VS Code window, since
+    /// Accessibility permission is only granted there, not per-project.
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
         if dockingConfig.focusVSCodeOnClick, tmuxPane == nil, let cwd = lastCwd {
             hookForwarder.forward(rawJSON: ["hook_event_name": "FocusVSCodeWindow", "session_id": sessionID, "cwd": cwd], to: hookPort, attemptsLeft: 1)
         }
-
-        guard dockingConfig.replyPopover, dockIcon.currentState == .awaitingInput else { return true }
-        replyPanel.show(question: pendingQuestion, near: NSEvent.mouseLocation)
         return true
-    }
-
-    private func submitReply(_ text: String) {
-        guard let pane = tmuxPane else {
-            let alert = NSAlert()
-            alert.messageText = "Can't deliver reply"
-            alert.informativeText = "This session isn't running inside tmux, so Dockling has no terminal pane to send the reply to."
-            alert.runModal()
-            return
-        }
-        fputs("[dockling] session \(sessionID) sending reply to pane \(pane)\n", stderr)
-        TmuxReply.send(text: text, toPane: pane)
-        dockIcon.apply(.thumbsUp)
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -110,8 +86,6 @@ final class SessionChildDelegate: NSObject, NSApplicationDelegate {
             // restore what the previous instance was showing/tracking
             // instead of starting fresh at idle.
             tmuxPane = handoff.tmuxPane
-            pendingQuestion = handoff.pendingQuestion
-            lastToolDescription = handoff.lastToolDescription
             lastCwd = handoff.lastCwd
             if isMama {
                 babies = handoff.babies.mapValues { Baby(pid: $0.pid, port: $0.port) }
@@ -129,7 +103,7 @@ final class SessionChildDelegate: NSObject, NSApplicationDelegate {
             dockIcon.apply(.idle)
         }
 
-        fputs("[dockling] session \(sessionID) child started on port \(port), config subagentDucks=\(dockingConfig.subagentDucks) replyPopover=\(dockingConfig.replyPopover)\n", stderr)
+        fputs("[dockling] session \(sessionID) child started on port \(port), config subagentDucks=\(dockingConfig.subagentDucks)\n", stderr)
 
         let server = HookServer(port: port, expectedToken: sharedSecret) { [weak self] rawJSON, event in
             self?.handle(rawJSON: rawJSON, event: event)
@@ -171,14 +145,6 @@ final class SessionChildDelegate: NSObject, NSApplicationDelegate {
             return
         }
 
-        // Any real event from here on means this turn moved forward somehow
-        // — including a question having been answered directly in the
-        // terminal/VS Code rather than through the reply panel, which
-        // otherwise only ever closes itself on its own Submit. Without this,
-        // that panel stays open and stale until the next time this exact
-        // session happens to go through awaitingInput again.
-        replyPanel.close()
-
         switch event.name {
         case "SessionStart":
             dockIcon.apply(.idle)
@@ -190,18 +156,12 @@ final class SessionChildDelegate: NSObject, NSApplicationDelegate {
         case "PreToolUse":
             let bucket = event.toolName.map { DockState.bucket(forToolName: $0, toolInput: event.toolInput) } ?? .other
             dockIcon.apply(bucket)
-            lastToolDescription = event.toolDescription
             didWorkThisTurn = true
         case "PostToolUseFailure":
             dockIcon.apply(.error)
         case "TaskCompleted":
             dockIcon.apply(.eureka)
         case "Notification":
-            if event.notificationType == "permission_prompt", let description = lastToolDescription {
-                pendingQuestion = description
-            } else {
-                pendingQuestion = event.message ?? "Claude is waiting for your input."
-            }
             dockIcon.apply(.awaitingInput)
             SoundPlayer.play("input_needed_dockling")
         case "Stop":
@@ -392,8 +352,6 @@ final class SessionChildDelegate: NSObject, NSApplicationDelegate {
         let handoff = ChildHandoff(
             tmuxPane: tmuxPane,
             dockState: dockIcon.currentState ?? .idle,
-            pendingQuestion: pendingQuestion,
-            lastToolDescription: lastToolDescription,
             lastCwd: lastCwd,
             babies: babies.mapValues { ChildHandoff.Baby(pid: $0.pid, port: $0.port) },
             babyOrder: babyOrder

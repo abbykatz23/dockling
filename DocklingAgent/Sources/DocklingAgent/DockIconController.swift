@@ -19,7 +19,6 @@ final class DockIconController {
     private let minimumHold: [DockState: TimeInterval] = [
         .eureka: 1.5,
         .error: 1.5,
-        .thumbsUp: 1.2,
         // An Edit tool call itself finishes almost instantly (unlike a real
         // shell command, which naturally holds the bash pose for as long as
         // it runs) — without a floor here, a PreToolUse for whatever the
@@ -29,7 +28,7 @@ final class DockIconController {
         // editing burst.
         .edit: 0.6,
     ]
-    private let selfExpiring: Set<DockState> = [.eureka, .thumbsUp]
+    private let selfExpiring: Set<DockState> = [.eureka]
 
     // A separate timer/slot from pendingWorkItem on purpose: that one holds
     // whichever single delayed-apply is currently in flight (a minimum-hold

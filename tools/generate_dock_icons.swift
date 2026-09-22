@@ -250,7 +250,6 @@ let poseForState: [(output: String, adjective: String)] = [
     ("awaiting-input", "front"),
     ("error", "angry"),
     ("edit", "coding"),
-    ("thumbs-up", "thumbsup"),
     ("butt", "butt"),
     // Two separate outputs, not one — DockIconController resolves which
     // asset actually backs .committing at load time (config: commit_pose),

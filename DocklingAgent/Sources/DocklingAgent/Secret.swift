@@ -3,10 +3,10 @@ import Security
 
 /// Per-install shared secret so only real Claude Code hook events (and the
 /// dispatcher's own forwards to session children) are accepted on the local
-/// HTTP ports — otherwise any other local process could POST a fake event or
-/// trigger a fake reply popover. See DOCKLING_SPEC.md's Security & Privacy
-/// section ("local channel auth"). Self-bootstrapping: generated on first use
-/// if not already present, so this works even without running install.sh.
+/// HTTP ports — otherwise any other local process could POST a fake event.
+/// See DOCKLING_SPEC.md's Security & Privacy section ("local channel auth").
+/// Self-bootstrapping: generated on first use if not already present, so
+/// this works even without running install.sh.
 enum DocklingSecret {
     private static let directory = (NSHomeDirectory() as NSString).appendingPathComponent(".dockling")
     static let path = (directory as NSString).appendingPathComponent("secret")
