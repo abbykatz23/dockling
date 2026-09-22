@@ -4,6 +4,9 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Dockling</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Schoolbell&display=swap" rel="stylesheet">
 <link rel="preload" as="image" href="assets/yellow-idle-hires.png">
 <link rel="preload" as="image" href="assets/yellow-angry-hires.png">
 <link rel="preload" as="audio" href="assets/quack.mp3">
@@ -94,9 +97,62 @@
      bounding-box only, and the box around this art is a lot bigger than
      the duck actually drawn inside it. */
   .duck.hovering { scale: 1.06; }
+
+  /* "dockling!" in crayon, one letter per duck color, sitting in the
+     page's static layout above wherever the duck happens to be — not
+     tracking her position, the way a site title wouldn't. Static per-letter
+     rotation/offset (hand-picked, not randomized or animated) is what
+     sells "written by a kid," same spirit as the wobbly bezel elsewhere in
+     this project; the letters themselves never move once laid out. The
+     dark stroke keeps the paler colors (baby blue, lavender, tan...)
+     legible against the white page, and doubles as the same bold-outline
+     look the duck art itself uses. */
+  .title {
+    position: fixed;
+    top: max(20px, 4vh);
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    -webkit-user-select: none;
+    user-select: none;
+  }
+  .title span {
+    font-family: 'Schoolbell', cursive;
+    font-size: clamp(40px, 8vw, 72px);
+    -webkit-text-stroke: 2px #1a1a1a;
+    text-shadow: 2px 3px 0 rgba(0, 0, 0, 0.1);
+    cursor: pointer;
+    /* Separate property from the per-letter transform below (rotation and
+       baseline offset), same reasoning as the duck's own hover-grow — they
+       compose independently instead of one clobbering the other. */
+    scale: 1;
+    transition: scale .15s ease;
+  }
+  .title span:hover { scale: 1.2; }
+  .title span:nth-child(1) { transform: rotate(-8deg) translateY(2px); }
+  .title span:nth-child(2) { transform: rotate(5deg) translateY(-4px); }
+  .title span:nth-child(3) { transform: rotate(-3deg) translateY(5px); }
+  .title span:nth-child(4) { transform: rotate(7deg) translateY(-3px); }
+  .title span:nth-child(5) { transform: rotate(-5deg) translateY(4px); }
+  .title span:nth-child(6) { transform: rotate(4deg) translateY(-5px); }
+  .title span:nth-child(7) { transform: rotate(-6deg) translateY(2px); }
+  .title span:nth-child(8) { transform: rotate(6deg) translateY(-3px); }
+  .title span:nth-child(9) { transform: rotate(-4deg) translateY(3px); }
 </style>
 </head>
 <body class="loading">
+
+<div class="title" aria-label="dockling!" id="title">
+  <span style="color:#FBDA2E" data-color="yellow">d</span>
+  <span style="color:#FF62B0" data-color="pink">o</span>
+  <span style="color:#AFE4FF" data-color="babyblue">c</span>
+  <span style="color:#F6982D" data-color="orange">k</span>
+  <span style="color:#CAA7FF" data-color="lavender">l</span>
+  <span style="color:#A5F6AB" data-color="green">i</span>
+  <span style="color:#2E8DFB" data-color="blue">n</span>
+  <span style="color:#E2CAA2" data-color="tan">g</span>
+  <span style="color:#C6BFBF" data-color="gray">!</span>
+</div>
 
 <div class="reveal" id="reveal">
   <p>Curious?</p>
@@ -110,9 +166,42 @@
   var duck = document.getElementById("duck");
   var dragging = false;
   var offsetX = 0, offsetY = 0;
-  var IDLE_SRC = "assets/yellow-idle-hires.png";
-  var ANGRY_SRC = "assets/yellow-angry-hires.png";
-  var SLEEPY_SRC = "assets/yellow-sleepy-hires.png";
+
+  // Yellow's images are the full-resolution originals (always loaded, so
+  // worth the extra quality); the other 8 colors are a smaller size,
+  // fetched lazily — see DUCK_IMAGES — only when a letter of "dockling!"
+  // actually gets hovered, so a visitor who never hovers the title never
+  // pays for them.
+  var DUCK_IMAGES = {
+    yellow:   { idle: "assets/yellow-idle-hires.png", angry: "assets/yellow-angry-hires.png", sleepy: "assets/yellow-sleepy-hires.png" },
+    pink:     { idle: "assets/pink-idle.png", angry: "assets/pink-angry.png", sleepy: "assets/pink-sleepy.png" },
+    babyblue: { idle: "assets/babyblue-idle.png", angry: "assets/babyblue-angry.png", sleepy: "assets/babyblue-sleepy.png" },
+    orange:   { idle: "assets/orange-idle.png", angry: "assets/orange-angry.png", sleepy: "assets/orange-sleepy.png" },
+    lavender: { idle: "assets/lavender-idle.png", angry: "assets/lavender-angry.png", sleepy: "assets/lavender-sleepy.png" },
+    green:    { idle: "assets/green-idle.png", angry: "assets/green-angry.png", sleepy: "assets/green-sleepy.png" },
+    blue:     { idle: "assets/blue-idle.png", angry: "assets/blue-angry.png", sleepy: "assets/blue-sleepy.png" },
+    tan:      { idle: "assets/tan-idle.png", angry: "assets/tan-angry.png", sleepy: "assets/tan-sleepy.png" },
+    gray:     { idle: "assets/gray-idle.png", angry: "assets/gray-angry.png", sleepy: "assets/gray-sleepy.png" }
+  };
+  var DEFAULT_COLOR = "yellow";
+  // What she settles back to once the mouse leaves a letter — starts as
+  // the default, but clicking a letter "locks in" that color as the new
+  // one to settle back to, until another letter gets clicked.
+  var stickyColor = DEFAULT_COLOR;
+  var currentColor = DEFAULT_COLOR;
+  var currentPose = "idle"; // "idle" | "angry" | "sleepy" — her actual state, independent of color
+
+  // The one place duck.src ever gets set — every pose change below just
+  // updates currentPose and calls this, so hovering a letter (which only
+  // ever touches currentColor) always shows that color in whatever pose
+  // she's actually in, exactly as asked.
+  function applyDuckImage() {
+    duck.src = DUCK_IMAGES[currentColor][currentPose];
+  }
+
+  function prefetchPose(color, pose) {
+    new Image().src = DUCK_IMAGES[color][pose];
+  }
 
   function clamp(value, min, max) {
     return Math.max(min, Math.min(max, value));
@@ -158,18 +247,17 @@
   // once the page is already up and idle-ish.
   var SLEEPY_TIMEOUT = 60 * 1000;
   var sleepyTimer = null;
-  var isSleepy = false;
 
   function prefetchSleepy() {
-    new Image().src = SLEEPY_SRC;
+    prefetchPose(DEFAULT_COLOR, "sleepy");
   }
   if (duck.complete) prefetchSleepy();
   else duck.addEventListener("load", prefetchSleepy);
 
   function goSleepy() {
     if (dragging) return;
-    isSleepy = true;
-    duck.src = SLEEPY_SRC;
+    currentPose = "sleepy";
+    applyDuckImage();
   }
 
   function scheduleSleepy() {
@@ -178,9 +266,9 @@
   }
 
   function markActivity() {
-    if (isSleepy && !dragging) {
-      isSleepy = false;
-      duck.src = IDLE_SRC;
+    if (currentPose === "sleepy" && !dragging) {
+      currentPose = "idle";
+      applyDuckImage();
     }
     scheduleSleepy();
   }
@@ -236,10 +324,10 @@
     offsetX = e.clientX - rect.left;
     offsetY = e.clientY - rect.top;
     dragging = true;
-    isSleepy = false; // set before ANGRY_SRC below so a later markActivity() call can't stomp on it
+    currentPose = "angry"; // she does not appreciate being picked up
+    applyDuckImage();
     duck.classList.add("hovering");
     duck.style.cursor = "grabbing";
-    duck.src = ANGRY_SRC; // she does not appreciate being picked up
     duck.setPointerCapture(e.pointerId);
   });
 
@@ -261,7 +349,8 @@
 
   function stop() {
     dragging = false;
-    duck.src = IDLE_SRC; // back to her usual self once let go
+    currentPose = "idle"; // back to her usual self once let go
+    applyDuckImage();
     scheduleSleepy(); // letting go counts as activity too, even with no pointermove in between
   }
   duck.addEventListener("pointerup", stop);
@@ -276,6 +365,35 @@
     try {
       new Audio("assets/quack.mp3").play().catch(function () {});
     } catch (e) {}
+  });
+
+  // Hovering a letter of "dockling!" turns her that color — whatever pose
+  // she's actually in (idle, angry mid-drag, or asleep) stays exactly as
+  // it was, only the color changes. Reverts to stickyColor (not always
+  // yellow — see its declaration) once the mouse leaves the letter.
+  // Clicking a letter locks that color in as the new stickyColor, so it
+  // stays even after the mouse moves away, until another letter is
+  // clicked. Mouse-only on purpose (mouseenter/leave/click, not pointer
+  // events) — touch has no real hover, so there's nothing meaningful to
+  // wire up there.
+  document.querySelectorAll("#title span").forEach(function (letter) {
+    var color = letter.getAttribute("data-color");
+    letter.addEventListener("mouseenter", function () {
+      currentColor = color;
+      applyDuckImage();
+    });
+    letter.addEventListener("mouseleave", function () {
+      currentColor = stickyColor;
+      applyDuckImage();
+    });
+    letter.addEventListener("click", function () {
+      stickyColor = color;
+      currentColor = color;
+      applyDuckImage();
+      // So the sleepy pose is already cached by the time she'd actually
+      // need it, same reasoning as the default color's own prefetch.
+      prefetchPose(color, "sleepy");
+    });
   });
 })();
 </script>
