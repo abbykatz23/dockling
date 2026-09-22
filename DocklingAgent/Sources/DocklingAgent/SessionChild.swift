@@ -67,11 +67,20 @@ final class SessionChildDelegate: NSObject, NSApplicationDelegate {
     /// If this session has no tmux pane (most likely the VS Code panel),
     /// asks the dispatcher to raise the matching VS Code window, since
     /// Accessibility permission is only granted there, not per-project.
+    /// Always returns false: this process never has a window of its own to
+    /// reopen (it's a Dock tile and nothing else), and returning true told
+    /// AppKit to run its own default handling on top of ours — which, with
+    /// zero windows, just makes this invisible process itself the system's
+    /// frontmost/active app. VS Code's window would visibly come forward
+    /// from the raise above, but *this* process silently held "active app"
+    /// status instead of it — reported as another window refusing to come
+    /// to the front afterward, which tracks: the window doing the
+    /// refusing belonged to an app macOS didn't think was active anymore.
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
         if dockingConfig.focusVSCodeOnClick, tmuxPane == nil, let cwd = lastCwd {
             hookForwarder.forward(rawJSON: ["hook_event_name": "FocusVSCodeWindow", "session_id": sessionID, "cwd": cwd], to: hookPort, attemptsLeft: 1)
         }
-        return true
+        return false
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
