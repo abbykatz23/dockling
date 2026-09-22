@@ -171,6 +171,14 @@ final class SessionChildDelegate: NSObject, NSApplicationDelegate {
             return
         }
 
+        // Any real event from here on means this turn moved forward somehow
+        // — including a question having been answered directly in the
+        // terminal/VS Code rather than through the reply panel, which
+        // otherwise only ever closes itself on its own Submit. Without this,
+        // that panel stays open and stale until the next time this exact
+        // session happens to go through awaitingInput again.
+        replyPanel.close()
+
         switch event.name {
         case "SessionStart":
             dockIcon.apply(.idle)

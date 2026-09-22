@@ -104,9 +104,18 @@ final class ReplyPanelController: NSObject, NSTextFieldDelegate {
 
     @objc private func submit(_ sender: NSTextField) {
         let text = sender.stringValue
-        panel?.close()
-        panel = nil
+        close()
         guard !text.isEmpty else { return }
         onSubmit(text)
+    }
+
+    /// Closes the panel if it's currently open — a no-op otherwise. Called
+    /// whenever a new hook event arrives for this session: if the question
+    /// got answered directly in the terminal/VS Code instead of through
+    /// this panel, the next real event (a new tool call, Stop, etc.) means
+    /// it's no longer relevant, so a stale popup shouldn't linger on screen.
+    func close() {
+        panel?.close()
+        panel = nil
     }
 }
