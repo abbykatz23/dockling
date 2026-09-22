@@ -7,12 +7,18 @@ import AppKit
 /// dispatcher with nothing on screen to tell you it did anything at all.
 /// A minimal native install flow instead, so setup needs no Terminal.
 final class FirstRunDelegate: NSObject, NSApplicationDelegate {
+    // Retained here, not just handed to showWindow(nil): NSWindowController
+    // isn't kept alive by its own window (isReleasedWhenClosed=false keeps
+    // the *window* around, not the controller), and this delegate is the
+    // only other thing around to hold a strong reference to it.
+    private var settingsWindowController: SettingsWindowController?
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.regular)
         NSApp.activate(ignoringOtherApps: true)
 
         if LaunchdRegistration.isInstalled {
-            showAlreadyInstalled()
+            openSettingsWindow(welcomeMessage: nil)
         } else {
             showWelcome()
         }
@@ -31,26 +37,24 @@ final class FirstRunDelegate: NSObject, NSApplicationDelegate {
         install()
     }
 
-    private func showAlreadyInstalled() {
-        let alert = NSAlert()
-        alert.messageText = "Dockling is already installed"
-        alert.informativeText = "It's running in the background and starts automatically at login."
-        alert.addButton(withTitle: "OK")
-        alert.addButton(withTitle: "Reinstall")
-        alert.addButton(withTitle: "Uninstall")
-        switch alert.runModal() {
-        case .alertSecondButtonReturn:
-            install()
-        case .alertThirdButtonReturn:
-            confirmUninstall()
-        default:
-            NSApp.terminate(nil)
-        }
+    private func openSettingsWindow(welcomeMessage: String?) {
+        let controller = SettingsWindowController(
+            welcomeMessage: welcomeMessage,
+            onUninstall: { [weak self] in self?.confirmUninstall() },
+            onReinstall: { [weak self] in self?.repairInstallation() }
+        )
+        settingsWindowController = controller
+        controller.showWindow(nil)
+        controller.window?.makeKeyAndOrderFront(nil)
     }
 
     /// Cancel is the default button (first added, responds to Return) rather
     /// than Uninstall — this is destructive and can't be undone, so an
-    /// accidental Return keypress shouldn't be able to trigger it.
+    /// accidental Return keypress shouldn't be able to trigger it. Declining
+    /// just returns to the still-open settings window rather than quitting
+    /// the whole app — this is reached from a button in that window now,
+    /// not from a one-shot "what do you want to do" alert with nothing else
+    /// left to show afterward.
     private func confirmUninstall() {
         let confirm = NSAlert()
         confirm.alertStyle = .warning
@@ -58,10 +62,7 @@ final class FirstRunDelegate: NSObject, NSApplicationDelegate {
         confirm.informativeText = "This removes Dockling's hooks from ~/.claude/settings.json, stops the background process, and deletes ~/.dockling — including your saved preferences and per-project duck colors. This can't be undone."
         confirm.addButton(withTitle: "Cancel")
         confirm.addButton(withTitle: "Uninstall")
-        guard confirm.runModal() == .alertSecondButtonReturn else {
-            NSApp.terminate(nil)
-            return
-        }
+        guard confirm.runModal() == .alertSecondButtonReturn else { return }
         Installer.uninstall()
         let done = NSAlert()
         done.messageText = "Dockling has been uninstalled"
@@ -69,6 +70,26 @@ final class FirstRunDelegate: NSObject, NSApplicationDelegate {
         done.addButton(withTitle: "OK")
         done.runModal()
         NSApp.terminate(nil)
+    }
+
+    /// Re-runs the same hook/launchd registration `install()` does, without
+    /// its customize step or final window — settings are already editable
+    /// live in the settings window this is reached from, so there's nothing
+    /// left to ask. For repairing a broken hook entry or launchd
+    /// registration without touching saved preferences.
+    private func repairInstallation() {
+        do {
+            try Installer.run()
+            try LaunchdRegistration.install()
+        } catch {
+            showError("Reinstall failed: \(error.localizedDescription)", terminate: false)
+            return
+        }
+        let done = NSAlert()
+        done.messageText = "Hooks reinstalled"
+        done.informativeText = "Dockling's hooks and background process have been refreshed."
+        done.addButton(withTitle: "OK")
+        done.runModal()
     }
 
     private func install() {
@@ -94,12 +115,7 @@ final class FirstRunDelegate: NSObject, NSApplicationDelegate {
             showError("Dockling's hooks are set up, but starting it automatically failed: \(error.localizedDescription)")
             return
         }
-        let done = NSAlert()
-        done.messageText = "You're all set!"
-        done.informativeText = "Start or continue any Claude Code session to see your duck."
-        done.addButton(withTitle: "OK")
-        done.runModal()
-        NSApp.terminate(nil)
+        openSettingsWindow(welcomeMessage: "You're all set! Start or continue any Claude Code session to see your duck. Here's what each pose means:")
     }
 
     /// Lets the user opt in/out of each feature before anything is actually
@@ -177,14 +193,14 @@ final class FirstRunDelegate: NSObject, NSApplicationDelegate {
         )
     }
 
-    private func showError(_ message: String) {
+    private func showError(_ message: String, terminate: Bool = true) {
         let alert = NSAlert()
         alert.alertStyle = .critical
         alert.messageText = "Something went wrong"
         alert.informativeText = message
         alert.addButton(withTitle: "OK")
         alert.runModal()
-        NSApp.terminate(nil)
+        if terminate { NSApp.terminate(nil) }
     }
 }
 
