@@ -23,7 +23,7 @@ See [DOCKLING_SPEC.md](./DOCKLING_SPEC.md) for the full design rationale. This R
 ### Option A: download (no Terminal, no Swift toolchain)
 
 1. Download the latest signed, notarized DMG from [Releases](https://github.com/abbykatz23/dockling/releases), open it, and drag Dockling to Applications.
-2. Double-click Dockling in Applications and click **Install**. This wires Dockling into `~/.claude/settings.json` so *every* Claude Code session on your machine reports its state — not just sessions run from inside a checkout of this repo — and registers it to start automatically at login. Right after, a window opens with your settings (whether to show a baby duck for each subagent, and whether to enable click-to-focus-VS-Code — the latter asks macOS for Accessibility access, so it's opt-in and unchecked by default) and a key showing what each duck pose means. Opening Dockling again later reopens this same window — settings save immediately as you change them, and it's also where you can Uninstall or Reinstall.
+2. Double-click Dockling in Applications and click **Install**. This wires Dockling into `~/.claude/settings.json` so *every* Claude Code session on your machine reports its state — not just sessions run from inside a checkout of this repo — and registers it to start automatically at login. Right after, a window opens with your settings (whether to show a baby duck for each subagent) and a key showing what each duck pose means. Opening Dockling again later reopens this same window — settings save immediately as you change them, and it's also where you can Uninstall or Reinstall.
 3. Start or continue any Claude Code session. A duck appears in the Dock once the session's first hook fires (`SessionStart`, or the first tool call in some clients).
 
 To uninstall, double-click Dockling in Applications again and click **Uninstall** — see [Uninstalling](#uninstalling).
@@ -102,13 +102,11 @@ Create `~/.dockling/config.json` to change any of these (missing keys/file fall 
 
 ```json
 {
-  "subagent_ducks": false,
-  "focus_vscode_on_click": true
+  "subagent_ducks": false
 }
 ```
 
 - `subagent_ducks` (default `true`): when off, subagents don't get their own duck, and their activity has no effect on mama's icon either — it's as if they're invisible. The whole family-relaunch mechanism (see below) also never triggers, since it exists solely to keep babies grouped with mama.
-- `focus_vscode_on_click` (default `false`): when on, clicking a duck for a session with no tmux pane (most likely the VS Code panel) raises that project's VS Code window. Requires macOS Accessibility access — asked for once, the first time the dispatcher starts with this on. When off (the default), that permission is never requested and the feature never runs. The GUI installer's customize step asks about this explicitly; a from-source install leaves it off unless you set it here.
 
 Read once at process startup (dispatcher and every session child each load their own copy), so a change takes effect on the next restart, not live.
 

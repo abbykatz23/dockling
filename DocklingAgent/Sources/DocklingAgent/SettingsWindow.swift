@@ -11,7 +11,6 @@ import AppKit
 final class SettingsWindowController: NSWindowController, NSWindowDelegate {
     private var config: DocklingConfig
     private var subagentDucksCheckbox: NSButton!
-    private var focusVSCodeCheckbox: NSButton!
     private let onUninstall: () -> Void
     private let onReinstall: () -> Void
     // Reused across double-clicks rather than a new window each time, so
@@ -96,11 +95,8 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
 
         documentStack.addArrangedSubview(makeLabel("Settings", bold: true))
         let subagentDucksCheckbox = makeCheckbox("Show a baby duck for each subagent", isOn: config.subagentDucks, rowWidth: rowWidth)
-        let focusVSCodeCheckbox = makeCheckbox("Focus Claude session when clicking duck (asks for Accessibility access)", isOn: config.focusVSCodeOnClick, rowWidth: rowWidth)
         self.subagentDucksCheckbox = subagentDucksCheckbox
-        self.focusVSCodeCheckbox = focusVSCodeCheckbox
         documentStack.addArrangedSubview(subagentDucksCheckbox)
-        documentStack.addArrangedSubview(focusVSCodeCheckbox)
         documentStack.addArrangedSubview(makeLabel("Changes here save immediately. You can also edit ~/.dockling/config.json directly.", wrapWidth: rowWidth, small: true))
 
         documentStack.addArrangedSubview(makeSeparator(width: rowWidth))
@@ -271,31 +267,8 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
     }
 
     @objc private func checkboxChanged(_ sender: NSButton) {
-        let newFocusVSCodeOnClick = focusVSCodeCheckbox.state == .on
-        let focusSettingChanged = newFocusVSCodeOnClick != config.focusVSCodeOnClick
-
         config.subagentDucks = subagentDucksCheckbox.state == .on
-        config.focusVSCodeOnClick = newFocusVSCodeOnClick
         config.save()
-
-        // subagentDucks takes effect on its own for any session that
-        // spawns from here on (a session child loads its own copy of
-        // config fresh at its own startup) — but focusVSCodeOnClick is
-        // read once by the *dispatcher*, a single long-running process
-        // that doesn't reload config per event, so toggling it here would
-        // otherwise silently do nothing until the next login. Restarting
-        // it is safe: it persists and reconciles its session table on
-        // startup specifically so a restart doesn't orphan or duplicate
-        // any already-running duck (see Dispatcher's own doc comment).
-        if focusSettingChanged {
-            DispatchQueue.global(qos: .userInitiated).async {
-                do {
-                    try LaunchdRegistration.install()
-                } catch {
-                    fputs("[dockling] failed to restart the dispatcher after a settings change: \(error)\n", stderr)
-                }
-            }
-        }
     }
 
     @objc private func uninstallClicked() {

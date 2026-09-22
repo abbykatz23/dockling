@@ -120,18 +120,6 @@ final class Dispatcher {
             return
         }
 
-        // A session child asking us to raise the VS Code window for her
-        // project on click — done here rather than in the child itself
-        // since Accessibility permission is granted per-binary, and every
-        // session runs as a distinct synthesized .app bundle; the
-        // dispatcher is the one stable process, so this is a one-time grant
-        // instead of one per project.
-        if event.name == "FocusVSCodeWindow", let cwd = rawJSON["cwd"] as? String {
-            guard dockingConfig.focusVSCodeOnClick else { return }
-            WindowFocus.focusVSCodeWindow(forCwd: cwd)
-            return
-        }
-
         if let existing = sessions[sessionID], !existing.isAlive {
             fputs("[dockling] session \(sessionID)'s child is no longer alive, respawning\n", stderr)
             sessions.removeValue(forKey: sessionID)
@@ -251,9 +239,6 @@ final class Dispatcher {
 }
 
 func runDispatcher(port: UInt16) -> Never {
-    if dockingConfig.focusVSCodeOnClick {
-        WindowFocus.requestPermissionIfNeeded()
-    }
     UpdateChecker.startPeriodicCheck()
 
     let dispatcher = Dispatcher()

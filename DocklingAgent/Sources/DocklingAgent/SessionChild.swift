@@ -43,9 +43,7 @@ final class SessionChildDelegate: NSObject, NSApplicationDelegate {
     private let dockIcon: DockIconController
     private var server: HookServer?
     private let hookForwarder = HookForwarder()
-    private var tmuxPane: String? // learned from SessionStart — used to tell a real terminal session apart from the VS Code panel, which has none
     private var didWorkThisTurn = false // set on PreToolUse, reset on UserPromptSubmit — see the "Stop" case for why
-    private var lastCwd: String? // remembered from whichever event last carried one — used to find this project's VS Code window on click
 
     // Mama-only state (babies never populate these).
     private var babies: [String: Baby] = [:] // agent_id -> baby
@@ -64,23 +62,18 @@ final class SessionChildDelegate: NSObject, NSApplicationDelegate {
     }
 
     /// Clicking the Dock icon while there are no visible windows routes here.
-    /// If this session has no tmux pane (most likely the VS Code panel),
-    /// asks the dispatcher to raise the matching VS Code window, since
-    /// Accessibility permission is only granted there, not per-project.
     /// Always returns false: this process never has a window of its own to
-    /// reopen (it's a Dock tile and nothing else), and returning true told
-    /// AppKit to run its own default handling on top of ours — which, with
+    /// reopen (it's a Dock tile and nothing else). Returning true — AppKit's
+    /// default when this isn't implemented at all — told AppKit to run its
+    /// own default handling on top of anything we do ourselves, which, with
     /// zero windows, just makes this invisible process itself the system's
-    /// frontmost/active app. VS Code's window would visibly come forward
-    /// from the raise above, but *this* process silently held "active app"
-    /// status instead of it — reported as another window refusing to come
-    /// to the front afterward, which tracks: the window doing the
-    /// refusing belonged to an app macOS didn't think was active anymore.
+    /// frontmost/active app: confirmed causing a real, reported bug (another
+    /// window refusing to come to the front afterward) back when this also
+    /// raised a matching VS Code window on click, a feature since removed
+    /// for being more trouble than it was worth — this false is what's left
+    /// of that fix, and still applies with nothing left to trigger it.
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
-        if dockingConfig.focusVSCodeOnClick, tmuxPane == nil, let cwd = lastCwd {
-            hookForwarder.forward(rawJSON: ["hook_event_name": "FocusVSCodeWindow", "session_id": sessionID, "cwd": cwd], to: hookPort, attemptsLeft: 1)
-        }
-        return false
+        false
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -94,8 +87,6 @@ final class SessionChildDelegate: NSObject, NSApplicationDelegate {
             // Resuming after a self-relaunch (see relaunchFamily()) —
             // restore what the previous instance was showing/tracking
             // instead of starting fresh at idle.
-            tmuxPane = handoff.tmuxPane
-            lastCwd = handoff.lastCwd
             if isMama {
                 babies = handoff.babies.mapValues { Baby(pid: $0.pid, port: $0.port) }
                 babyOrder = handoff.babyOrder
@@ -122,8 +113,6 @@ final class SessionChildDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func handle(rawJSON: [String: Any], event: HookEvent) {
-        if let cwd = event.cwd { lastCwd = cwd }
-
         if isMama, event.name == "SelfRelaunched", let agentID = event.agentID, let newPid = rawJSON["new_pid"] as? Int {
             // One of my babies relaunched herself as part of a family
             // relaunch (see relaunchFamily()) — update my record of her
@@ -158,10 +147,6 @@ final class SessionChildDelegate: NSObject, NSApplicationDelegate {
         case "SessionStart":
             dockIcon.apply(.idle)
             didWorkThisTurn = false
-            if let pane = event.tmuxPane {
-                tmuxPane = pane
-                fputs("[dockling] session \(sessionID) learned tmux pane \(pane)\n", stderr)
-            }
         case "PreToolUse":
             let bucket = event.toolName.map { DockState.bucket(forToolName: $0, toolInput: event.toolInput) } ?? .other
             dockIcon.apply(bucket)
@@ -359,9 +344,7 @@ final class SessionChildDelegate: NSObject, NSApplicationDelegate {
 
     private func relaunchSelf() {
         let handoff = ChildHandoff(
-            tmuxPane: tmuxPane,
             dockState: dockIcon.currentState ?? .idle,
-            lastCwd: lastCwd,
             babies: babies.mapValues { ChildHandoff.Baby(pid: $0.pid, port: $0.port) },
             babyOrder: babyOrder
         )
