@@ -135,7 +135,7 @@ enum Installer {
         for event in ["PreToolUse", "PostToolUseFailure", "TaskCompleted", "Notification", "Stop", "StopFailure", "SessionEnd", "UserPromptSubmit", "PreCompact"] {
             hooks[event] = mergedGroups(
                 existing: hooks[event],
-                isDocklingsOwn: { group in matches(group: group, key: "url", contains: "127.0.0.1:\(hookPort)\(hookPath)") },
+                isDocklingsOwn: isDocklingsHTTPHookGroup,
                 newGroup: ["hooks": [["type": "http", "url": hookURL]]]
             )
         }
@@ -184,6 +184,24 @@ enum Installer {
         guard let hookEntries = group["hooks"] as? [[String: Any]] else { return false }
         return hookEntries.contains { entry in
             (entry[key] as? String)?.contains(substring) ?? false
+        }
+    }
+
+    // Paths a previous version of Dockling used for this same well-known
+    // port, kept so a reinstall/uninstall after a path change (like the
+    // "/hook" -> "/dockling-hook" one) still recognizes and replaces/removes
+    // the old entry instead of leaving it behind as an orphaned duplicate —
+    // confirmed to actually happen, not just theoretical, the first time
+    // this path changed. Append here (never remove) whenever hookPath ever
+    // changes again.
+    private static let legacyHookPaths = ["/hook"]
+
+    /// Shared by mergeHooks and removeHooks: true for an http-hook group
+    /// pointing at this (or a former) Dockling hook URL on the well-known
+    /// port.
+    private static func isDocklingsHTTPHookGroup(_ group: [String: Any]) -> Bool {
+        ([hookPath] + legacyHookPaths).contains { path in
+            matches(group: group, key: "url", contains: "127.0.0.1:\(hookPort)\(path)")
         }
     }
 
@@ -251,7 +269,7 @@ enum Installer {
         for event in ["PreToolUse", "PostToolUseFailure", "TaskCompleted", "Notification", "Stop", "StopFailure", "SessionEnd", "UserPromptSubmit", "PreCompact"] {
             hooks[event] = withoutDocklingsOwn(
                 existing: hooks[event],
-                isDocklingsOwn: { group in matches(group: group, key: "url", contains: "127.0.0.1:\(hookPort)\(hookPath)") }
+                isDocklingsOwn: isDocklingsHTTPHookGroup
             )
         }
         settings["hooks"] = hooks
