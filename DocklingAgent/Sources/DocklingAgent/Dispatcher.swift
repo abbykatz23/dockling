@@ -261,6 +261,7 @@ final class Dispatcher {
 
 func runDispatcher(port: UInt16) -> Never {
     WindowFocus.requestPermissionIfNeeded()
+    UpdateChecker.startPeriodicCheck()
 
     let dispatcher = Dispatcher()
     dispatcher.start(onPort: port)

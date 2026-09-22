@@ -27,7 +27,13 @@ NOTARY_PROFILE="dockling-notary"
 SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
 REPO_ROOT=$(cd "$SCRIPT_DIR/.." && pwd)
 BINARY="$REPO_ROOT/DocklingAgent/.build/release/DocklingAgent"
-VERSION=$(date +%Y.%m.%d)
+# Includes the time, not just the date — same-day releases have needed a
+# manual -2/-3/-4 suffix on the git tag until now, which the update checker
+# (UpdateChecker.swift) can't compare reliably. A full timestamp is unique
+# per build automatically, and this exact string is what the git tag should
+# be too (v$VERSION) — the embedded version and the tag it corresponds to
+# need to be the same string for that comparison to mean anything.
+VERSION=$(date +%Y.%m.%d.%H%M)
 DIST_DIR="$REPO_ROOT/dist"
 # Stable filename, not versioned — the landing page links directly to
 # github.com/.../releases/latest/download/Dockling.dmg, which only works
@@ -50,6 +56,18 @@ if ! xcrun notarytool history --keychain-profile "$NOTARY_PROFILE" >/dev/null 2>
   echo "error: no notarization credentials stored under profile '$NOTARY_PROFILE' — see this script's header for setup." >&2
   exit 1
 fi
+
+VERSION_FILE="$REPO_ROOT/DocklingAgent/Sources/DocklingAgent/GeneratedVersion.swift"
+# Restores the checked-in nil default no matter how this script exits —
+# a build failure (or Ctrl-C) shouldn't leave the working tree with a real
+# version baked in, uncommitted, waiting to confuse the next `git status`.
+trap 'git -C "$REPO_ROOT" checkout -- "$VERSION_FILE" 2>/dev/null || true' EXIT
+cat > "$VERSION_FILE" <<EOF
+// Overwritten by tools/notarize_release.sh for this one release build —
+// restored to nil right after. See that script, not this file, to change
+// the value; don't commit this with a real version in it.
+let docklingVersion: String? = "$VERSION"
+EOF
 
 echo "Building Dockling (release)..."
 (cd "$REPO_ROOT/DocklingAgent" && swift build -c release)
@@ -130,3 +148,7 @@ echo
 echo "Done: $DMG_PATH"
 echo "Recipients: open it, drag Dockling to Applications, double-click it,"
 echo "click Install. No Terminal, no Swift toolchain needed."
+echo
+echo "Next: publish the release with this exact tag, so the embedded"
+echo "version and the update checker's comparison agree:"
+echo "  gh release create v$VERSION $DMG_PATH --title \"Dockling $VERSION\" --notes \"...\""
