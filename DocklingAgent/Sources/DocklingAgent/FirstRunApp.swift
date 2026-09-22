@@ -113,6 +113,7 @@ final class FirstRunDelegate: NSObject, NSApplicationDelegate {
 
         let rowWidth: CGFloat = 400
         let checkboxFont = NSFont.systemFont(ofSize: NSFont.systemFontSize)
+        var rowHeights: [CGFloat] = []
 
         // NSButton's own intrinsic size assumes a single line unless told
         // otherwise — without wraps=true plus an explicit, measured height,
@@ -130,7 +131,9 @@ final class FirstRunDelegate: NSObject, NSApplicationDelegate {
                 options: [.usesLineFragmentOrigin, .usesFontLeading],
                 attributes: [.font: checkboxFont]
             ).height)
-            checkbox.heightAnchor.constraint(greaterThanOrEqualToConstant: max(18, textHeight + 2)).isActive = true
+            let rowHeight = max(18, textHeight + 2)
+            checkbox.heightAnchor.constraint(greaterThanOrEqualToConstant: rowHeight).isActive = true
+            rowHeights.append(rowHeight)
             return checkbox
         }
 
@@ -174,15 +177,37 @@ final class FirstRunDelegate: NSObject, NSApplicationDelegate {
         case .bride: commitPosePopup.selectItem(at: 1)
         case .groom: commitPosePopup.selectItem(at: 2)
         }
+        let commitPoseRowHeight: CGFloat = 24
         let commitPoseRow = NSStackView(views: [commitPoseLabel, commitPosePopup])
         commitPoseRow.orientation = .horizontal
         commitPoseRow.spacing = 8
+        commitPoseRow.translatesAutoresizingMaskIntoConstraints = false
+        commitPoseRow.heightAnchor.constraint(equalToConstant: commitPoseRowHeight).isActive = true
+        rowHeights.append(commitPoseRowHeight)
 
+        let stackSpacing: CGFloat = 12
         let stack = NSStackView(views: [subagentDucksCheckbox, replyPopoverCheckbox, focusVSCodeCheckbox, commitPoseRow])
         stack.orientation = .vertical
         stack.alignment = .leading
-        stack.spacing = 12
-        alert.accessoryView = stack
+        stack.spacing = stackSpacing
+        stack.translatesAutoresizingMaskIntoConstraints = false
+
+        // NSAlert sizes its accessory area off the view's own `frame`, not
+        // off NSStackView's constraint-derived intrinsic size — without an
+        // explicitly framed container, the accessory area collapses to
+        // near-zero height and its content overlaps the alert's own text
+        // instead of sitting in its own space below it (confirmed
+        // happening: exactly this overlap, in the shipped customize step).
+        let totalHeight = rowHeights.reduce(0, +) + stackSpacing * CGFloat(rowHeights.count - 1)
+        let container = NSView(frame: NSRect(x: 0, y: 0, width: rowWidth, height: totalHeight))
+        container.addSubview(stack)
+        NSLayoutConstraint.activate([
+            stack.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+            stack.trailingAnchor.constraint(lessThanOrEqualTo: container.trailingAnchor),
+            stack.topAnchor.constraint(equalTo: container.topAnchor),
+            stack.bottomAnchor.constraint(equalTo: container.bottomAnchor),
+        ])
+        alert.accessoryView = container
 
         guard alert.runModal() == .alertFirstButtonReturn else { return nil }
 
