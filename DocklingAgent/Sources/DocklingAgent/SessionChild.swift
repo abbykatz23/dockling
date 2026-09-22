@@ -198,7 +198,15 @@ final class SessionChildDelegate: NSObject, NSApplicationDelegate {
             // means a stuck icon self-heals the moment the user types
             // anything — not an interrupt-specific fix, just the nearest
             // reliable signal that a fresh turn is starting.
-            dockIcon.apply(.idle)
+            //
+            // .other (thinking), not .idle: there's no hook for "the model
+            // has started generating" — PreToolUse only fires once Claude
+            // actually decides to call a tool, which can be many seconds
+            // into a turn (or never, for a pure text reply). Resetting to
+            // idle here meant idle was showing for that entire stretch,
+            // even though Claude was actively working the whole time.
+            // Idle should mean "waiting for you," not "just got a message."
+            dockIcon.apply(.other)
             didWorkThisTurn = false
         case "RelaunchSelf":
             // Mama asking one of her babies (this process) to relaunch as
