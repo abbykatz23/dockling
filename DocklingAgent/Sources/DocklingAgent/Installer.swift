@@ -203,7 +203,7 @@ enum Installer {
     # urlencode dependency for it.
     PANE_ENCODED=$(printf '%s' "${TMUX_PANE:-}" | sed 's/%/%25/g')
 
-    curl -s -m 2 -X POST "http://127.0.0.1:8765/hook?token=${TOKEN}&tmux_pane=${PANE_ENCODED}" \
+    curl -s -m 2 -X POST "http://127.0.0.1:\#(hookPort)/hook?token=${TOKEN}&tmux_pane=${PANE_ENCODED}" \
       -H 'Content-Type: application/json' \
       -d "$INPUT" > /dev/null || true
 

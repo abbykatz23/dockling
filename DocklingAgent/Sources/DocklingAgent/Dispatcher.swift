@@ -43,7 +43,7 @@ final class Dispatcher {
     // Randomized rather than a fixed base: even with startup reconciliation
     // below, this stays a useful second line of defense.
     private var nextPort: UInt16 = UInt16.random(in: Dispatcher.portRangeStart...Dispatcher.portRangeEnd)
-    private let urlSession = URLSession(configuration: .ephemeral)
+    private let hookForwarder = HookForwarder()
     private var server: HookServer? // must be retained — see the bug this fixed below
 
     func start(onPort port: UInt16) {
@@ -83,7 +83,7 @@ final class Dispatcher {
 
         if event.name == "SessionEnd" {
             guard let session = sessions[sessionID] else { return }
-            forward(rawJSON: rawJSON, to: session.port, attemptsLeft: 1)
+            hookForwarder.forward(rawJSON: rawJSON, to: session.port, attemptsLeft: 1)
             sessions.removeValue(forKey: sessionID)
             persistRegistry()
             // Give the child a moment to see SessionEnd and terminate itself
@@ -128,7 +128,7 @@ final class Dispatcher {
             session.tmuxPane = pane
             fputs("[dockling] session \(sessionID) tmux pane -> \(pane)\n", stderr)
         }
-        forward(rawJSON: rawJSON, to: session.port, attemptsLeft: 5)
+        hookForwarder.forward(rawJSON: rawJSON, to: session.port, attemptsLeft: 5)
     }
 
     private func spawnSession(sessionID: String, cwd: String?) -> Session? {
@@ -233,29 +233,6 @@ final class Dispatcher {
         let usedColors = Set(sessions.values.map(\.color))
         let available = Self.colors.filter { !usedColors.contains($0) }
         return (available.isEmpty ? Self.colors : available).randomElement()!
-    }
-
-    /// Freshly spawned children need a beat to bind their listener, so a
-    /// forward can arrive before the port is ready; retry briefly rather than
-    /// dropping the event that triggered the spawn.
-    private func forward(rawJSON: [String: Any], to port: UInt16, attemptsLeft: Int) {
-        guard let body = try? JSONSerialization.data(withJSONObject: rawJSON) else { return }
-        var request = URLRequest(url: URL(string: "http://127.0.0.1:\(port)/hook?token=\(sharedSecret)")!)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.httpBody = body
-        request.timeoutInterval = 2
-
-        urlSession.dataTask(with: request) { [weak self] _, response, error in
-            let ok = (response as? HTTPURLResponse)?.statusCode == 200
-            if !ok, attemptsLeft > 1 {
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
-                    self?.forward(rawJSON: rawJSON, to: port, attemptsLeft: attemptsLeft - 1)
-                }
-            } else if !ok {
-                fputs("[dockling] gave up forwarding to port \(port): \(error?.localizedDescription ?? "no response")\n", stderr)
-            }
-        }.resume()
     }
 }
 

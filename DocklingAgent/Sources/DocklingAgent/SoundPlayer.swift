@@ -1,11 +1,7 @@
 import AVFoundation
 
 /// Plays a short sound effect by name (no extension, e.g. "ready_dockling").
-/// Mirrors DockIconController's asset-loading pattern: prefers
-/// ~/.dockling/resources/Sounds (installed by `--install`) over Bundle.module,
-/// since the latter reads straight out of the repo checkout and would
-/// reintroduce the same Downloads/Desktop/Documents permission prompt the
-/// icon assets were moved out of Bundle.module to avoid.
+/// Resolves each sound via AssetResolver, same as DockIconController's icons.
 ///
 /// Built on AVAudioPlayer rather than NSSound for two reasons, both found by
 /// actually listening to a two-quack effect play too short:
@@ -26,11 +22,6 @@ import AVFoundation
 ///    left of it. A small round-robin pool per name (see `poolSize`) gives
 ///    overlapping triggers their own instance instead of fighting over one.
 enum SoundPlayer {
-    private static let installedDir = ((((NSHomeDirectory() as NSString)
-        .appendingPathComponent(".dockling") as NSString)
-        .appendingPathComponent("resources") as NSString)
-        .appendingPathComponent("Sounds"))
-
     // Every sound Dockling currently triggers — warmUp() primes all of them
     // up front rather than waiting for whichever fires first.
     private static let knownNames = ["ready_dockling", "input_needed_dockling"]
@@ -44,14 +35,7 @@ enum SoundPlayer {
 
     private static func pool(for name: String) -> [AVAudioPlayer] {
         if let cached = pools[name] { return cached }
-        let installedPath = (installedDir as NSString).appendingPathComponent("\(name).mp3")
-        let url: URL?
-        if FileManager.default.fileExists(atPath: installedPath) {
-            url = URL(fileURLWithPath: installedPath)
-        } else {
-            url = Bundle.module.url(forResource: name, withExtension: "mp3", subdirectory: "Resources/Sounds")
-        }
-        guard let url else {
+        guard let url = AssetResolver.resolveURL(name: name, ext: "mp3", subdir: "Sounds") else {
             fputs("warning: missing sound asset \(name)\n", stderr)
             return []
         }

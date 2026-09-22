@@ -45,10 +45,6 @@ final class DockIconController {
     /// subagent "baby" duck visibly smaller than her mama, since otherwise
     /// they're identical and unrecognizable as a family at a glance.
     init(color: String, scale: CGFloat = 1.0) {
-        let installedDir = ((((NSHomeDirectory() as NSString).appendingPathComponent(".dockling") as NSString)
-            .appendingPathComponent("resources") as NSString)
-            .appendingPathComponent(color))
-
         // .committing has two separate assets (committing-bride.png,
         // committing-groom.png — see generate_dock_icons.swift) rather than
         // one file at its own rawValue; which one actually backs the state
@@ -65,16 +61,7 @@ final class DockIconController {
         for state in DockState.allCases {
             let assetName = state == .committing ? "committing-\(resolvedCommitPose.rawValue)" : state.rawValue
 
-            // Prefers ~/.dockling/resources (installed by `--install`) over
-            // Bundle.module: the latter reads straight out of the repo
-            // checkout's .build folder, which triggers a macOS permission
-            // prompt every time if the repo happens to live under Downloads,
-            // Desktop, or Documents. Bundle.module stays as a fallback so a
-            // debug build still works before `--install` has ever run.
-            let installedPath = (installedDir as NSString).appendingPathComponent("\(assetName).png")
-            let image: NSImage? = FileManager.default.fileExists(atPath: installedPath)
-                ? NSImage(contentsOfFile: installedPath)
-                : Bundle.module.url(forResource: assetName, withExtension: "png", subdirectory: "Resources/\(color)").flatMap(NSImage.init(contentsOf:))
+            let image = AssetResolver.resolveURL(name: assetName, ext: "png", subdir: color).flatMap(NSImage.init(contentsOf:))
 
             guard let image else {
                 fputs("warning: missing icon asset for state \(state.rawValue) (color \(color))\n", stderr)

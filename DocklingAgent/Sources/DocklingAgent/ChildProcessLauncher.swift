@@ -77,20 +77,25 @@ enum ChildProcessLauncher {
             }
         }
 
-        let bundleID = "com.dockling.session." + displayName.lowercased()
-            .map { $0.isLetter || $0.isNumber ? $0 : "-" }
-            .reduce(into: "") { $0.append($1) }
-        let info: [String: Any] = [
-            "CFBundleName": displayName,
-            "CFBundleDisplayName": displayName,
-            "CFBundleExecutable": "DocklingAgent",
-            "CFBundleIdentifier": bundleID,
-            "CFBundlePackageType": "APPL",
-            "CFBundleShortVersionString": "1.0",
-            "CFBundleVersion": "1",
-        ]
-        if let plistData = try? PropertyListSerialization.data(fromPropertyList: info, format: .xml, options: 0) {
-            try? plistData.write(to: URL(fileURLWithPath: infoPlistPath))
+        // Every field below is derived solely from displayName, which is
+        // itself baked into bundlePath — so once written for this bundle,
+        // it can never go stale the way the symlink target can.
+        if !fileManager.fileExists(atPath: infoPlistPath) {
+            let bundleID = "com.dockling.session." + displayName.lowercased()
+                .map { $0.isLetter || $0.isNumber ? $0 : "-" }
+                .reduce(into: "") { $0.append($1) }
+            let info: [String: Any] = [
+                "CFBundleName": displayName,
+                "CFBundleDisplayName": displayName,
+                "CFBundleExecutable": "DocklingAgent",
+                "CFBundleIdentifier": bundleID,
+                "CFBundlePackageType": "APPL",
+                "CFBundleShortVersionString": "1.0",
+                "CFBundleVersion": "1",
+            ]
+            if let plistData = try? PropertyListSerialization.data(fromPropertyList: info, format: .xml, options: 0) {
+                try? plistData.write(to: URL(fileURLWithPath: infoPlistPath))
+            }
         }
 
         return executablePath

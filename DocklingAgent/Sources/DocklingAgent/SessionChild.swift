@@ -30,7 +30,7 @@ final class SessionChildDelegate: NSObject, NSApplicationDelegate {
 
     private let dockIcon: DockIconController
     private var server: HookServer?
-    private let urlSession = URLSession(configuration: .ephemeral)
+    private let hookForwarder = HookForwarder()
     private var tmuxPane: String? // learned from SessionStart; needed to send a reply via `tmux send-keys`
     private var pendingQuestion: String = "Claude is waiting for your input."
     private var lastToolDescription: String? // remembered from the most recent PreToolUse, since Notification's own message is generic
@@ -65,7 +65,7 @@ final class SessionChildDelegate: NSObject, NSApplicationDelegate {
     /// activates the (windowless) app, same as any other Dock icon.
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
         if tmuxPane == nil, let cwd = lastCwd {
-            forward(rawJSON: ["hook_event_name": "FocusVSCodeWindow", "session_id": sessionID, "cwd": cwd], to: hookPort, attemptsLeft: 1)
+            hookForwarder.forward(rawJSON: ["hook_event_name": "FocusVSCodeWindow", "session_id": sessionID, "cwd": cwd], to: hookPort, attemptsLeft: 1)
         }
 
         guard dockingConfig.replyPopover, dockIcon.currentState == .awaitingInput else { return true }
@@ -242,7 +242,7 @@ final class SessionChildDelegate: NSObject, NSApplicationDelegate {
                 // .eureka rather than guessing a number here.
                 baby.isFinishing = true
                 babies[agentID] = baby
-                forward(rawJSON: ["hook_event_name": "TaskCompleted"], to: baby.port, attemptsLeft: 3)
+                hookForwarder.forward(rawJSON: ["hook_event_name": "TaskCompleted"], to: baby.port, attemptsLeft: 3)
                 let pid = baby.pid
                 let port = baby.port
                 DispatchQueue.main.asyncAfter(deadline: .now() + 1.8) { [weak self] in
@@ -251,7 +251,7 @@ final class SessionChildDelegate: NSObject, NSApplicationDelegate {
                     self?.babyOrder.removeAll { $0 == agentID }
                 }
             } else {
-                forward(rawJSON: rawJSON, to: baby.port, attemptsLeft: 3)
+                hookForwarder.forward(rawJSON: rawJSON, to: baby.port, attemptsLeft: 3)
             }
             return
         }
@@ -266,7 +266,7 @@ final class SessionChildDelegate: NSObject, NSApplicationDelegate {
         babies[agentID] = Baby(pid: babyProcess.processIdentifier, port: babyPort)
         babyOrder.append(agentID)
         fputs("[dockling] session \(sessionID) spawned baby \(agentID) (\(agentType ?? "subagent")) on port \(babyPort)\n", stderr)
-        forward(rawJSON: rawJSON, to: babyPort, attemptsLeft: 5)
+        hookForwarder.forward(rawJSON: rawJSON, to: babyPort, attemptsLeft: 5)
         scheduleRelaunch()
     }
 
@@ -285,30 +285,10 @@ final class SessionChildDelegate: NSObject, NSApplicationDelegate {
     /// never arrives or she never gets to exit on her own — the same
     /// pattern the dispatcher uses for its own children's SessionEnd.
     private func endBaby(port: UInt16, pid: Int32) {
-        forward(rawJSON: ["hook_event_name": "SessionEnd"], to: port, attemptsLeft: 3)
+        hookForwarder.forward(rawJSON: ["hook_event_name": "SessionEnd"], to: port, attemptsLeft: 3)
         DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) {
             if SessionRegistry.isAlive(pid: pid) { kill(pid, SIGTERM) }
         }
-    }
-
-    private func forward(rawJSON: [String: Any], to port: UInt16, attemptsLeft: Int) {
-        guard let body = try? JSONSerialization.data(withJSONObject: rawJSON) else { return }
-        var request = URLRequest(url: URL(string: "http://127.0.0.1:\(port)/hook?token=\(sharedSecret)")!)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.httpBody = body
-        request.timeoutInterval = 2
-
-        urlSession.dataTask(with: request) { [weak self] _, response, error in
-            let ok = (response as? HTTPURLResponse)?.statusCode == 200
-            if !ok, attemptsLeft > 1 {
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
-                    self?.forward(rawJSON: rawJSON, to: port, attemptsLeft: attemptsLeft - 1)
-                }
-            } else if !ok {
-                fputs("[dockling] gave up forwarding to port \(port): \(error?.localizedDescription ?? "no response")\n", stderr)
-            }
-        }.resume()
     }
 
     // MARK: - Self-relaunch (Dock ordering trick)
@@ -338,7 +318,7 @@ final class SessionChildDelegate: NSObject, NSApplicationDelegate {
         for (index, agentID) in orderedIDs.enumerated() {
             DispatchQueue.main.asyncAfter(deadline: .now() + Double(index) * 0.15) { [weak self] in
                 guard let baby = self?.babies[agentID], !baby.isFinishing else { return }
-                self?.forward(rawJSON: ["hook_event_name": "RelaunchSelf"], to: baby.port, attemptsLeft: 3)
+                self?.hookForwarder.forward(rawJSON: ["hook_event_name": "RelaunchSelf"], to: baby.port, attemptsLeft: 3)
             }
         }
         let mamaDelay = Double(orderedIDs.count) * 0.15 + 0.4
@@ -377,7 +357,7 @@ final class SessionChildDelegate: NSObject, NSApplicationDelegate {
             "new_pid": Int(ProcessInfo.processInfo.processIdentifier),
         ]
         if let agentID { payload["agent_id"] = agentID }
-        forward(rawJSON: payload, to: parentPort, attemptsLeft: 10)
+        hookForwarder.forward(rawJSON: payload, to: parentPort, attemptsLeft: 10)
     }
 }
 
