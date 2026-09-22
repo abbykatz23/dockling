@@ -29,7 +29,11 @@ REPO_ROOT=$(cd "$SCRIPT_DIR/.." && pwd)
 BINARY="$REPO_ROOT/DocklingAgent/.build/release/DocklingAgent"
 VERSION=$(date +%Y.%m.%d)
 DIST_DIR="$REPO_ROOT/dist"
-DMG_PATH="$DIST_DIR/Dockling-$VERSION.dmg"
+# Stable filename, not versioned — the landing page links directly to
+# github.com/.../releases/latest/download/Dockling.dmg, which only works
+# as a permanent "always get the newest build" link if this name never
+# changes between releases. Versioning lives in the release tag/notes.
+DMG_PATH="$DIST_DIR/Dockling.dmg"
 
 command -v swift >/dev/null 2>&1 || {
   echo "error: 'swift' is required (install Xcode Command Line Tools: xcode-select --install)" >&2
