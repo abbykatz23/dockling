@@ -18,7 +18,19 @@ final class SessionChildDelegate: NSObject, NSApplicationDelegate {
         var pid: Int32
         let port: UInt16
         var isFinishing = false
+        var timeoutWorkItem: DispatchWorkItem? // see scheduleBabyTimeout
     }
+
+    // SubagentHandback (see handleBabyEvent) is the normal "she's done"
+    // signal, but it's occasionally never observed at all for a given
+    // agent_id (seen in practice, likely a signal that gets lost around a
+    // conversation compaction boundary) — which would otherwise leave her
+    // frozen mid-pose forever, with nothing left to ever revisit her. This
+    // is the fallback: if mama hears nothing at all for a baby for this
+    // long, she cleans her up on her own, same as a real SubagentHandback
+    // would. Well above DockIconController's own 5-minute idle timeout —
+    // ordinary tool-call quiet stretches shouldn't trip this.
+    private let babyTimeout: TimeInterval = 10 * 60
 
     private let sessionID: String
     private let port: UInt16
@@ -104,6 +116,11 @@ final class SessionChildDelegate: NSObject, NSApplicationDelegate {
             if isMama {
                 babies = handoff.babies.mapValues { Baby(pid: $0.pid, port: $0.port) }
                 babyOrder = handoff.babyOrder
+                // A relaunch (the common case — see relaunchFamily()) never
+                // carries a live DispatchWorkItem across processes, so every
+                // baby's timeout would otherwise just silently stop being
+                // watched from here on, the first time mama relaunches.
+                for agentID in babies.keys { scheduleBabyTimeout(agentID: agentID) }
                 fputs("[dockling] session \(sessionID) resumed from handoff with \(babies.count) babies\n", stderr)
             }
             dockIcon.apply(handoff.dockState)
@@ -256,6 +273,8 @@ final class SessionChildDelegate: NSObject, NSApplicationDelegate {
                 // after — reusing DockIconController's own hold duration for
                 // .eureka rather than guessing a number here.
                 baby.isFinishing = true
+                baby.timeoutWorkItem?.cancel()
+                baby.timeoutWorkItem = nil
                 babies[agentID] = baby
                 hookForwarder.forward(rawJSON: ["hook_event_name": "TaskCompleted"], to: baby.port, attemptsLeft: 3)
                 let pid = baby.pid
@@ -267,6 +286,7 @@ final class SessionChildDelegate: NSObject, NSApplicationDelegate {
                 }
             } else {
                 hookForwarder.forward(rawJSON: rawJSON, to: baby.port, attemptsLeft: 3)
+                scheduleBabyTimeout(agentID: agentID)
             }
             return
         }
@@ -283,6 +303,24 @@ final class SessionChildDelegate: NSObject, NSApplicationDelegate {
         fputs("[dockling] session \(sessionID) spawned baby \(agentID) (\(agentType ?? "subagent")) on port \(babyPort)\n", stderr)
         hookForwarder.forward(rawJSON: rawJSON, to: babyPort, attemptsLeft: 5)
         scheduleRelaunch()
+        scheduleBabyTimeout(agentID: agentID)
+    }
+
+    /// (Re)arms the fallback cleanup timer for a baby — see its declaration
+    /// for why it exists. Cancels and replaces any timer already pending
+    /// for her, same reset-on-activity shape as DockIconController's own
+    /// idle/sleepy timer.
+    private func scheduleBabyTimeout(agentID: String) {
+        babies[agentID]?.timeoutWorkItem?.cancel()
+        let work = DispatchWorkItem { [weak self] in
+            guard let self, let baby = self.babies[agentID], !baby.isFinishing else { return }
+            fputs("[dockling] session \(self.sessionID) baby \(agentID) went quiet for \(Int(self.babyTimeout))s with no SubagentHandback ever seen, cleaning her up\n", stderr)
+            self.endBaby(port: baby.port, pid: baby.pid)
+            self.babies.removeValue(forKey: agentID)
+            self.babyOrder.removeAll { $0 == agentID }
+        }
+        babies[agentID]?.timeoutWorkItem = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + babyTimeout, execute: work)
     }
 
     private func allocateBabyPort() -> UInt16 {
