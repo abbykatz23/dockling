@@ -15,13 +15,16 @@ PADDED="$OUT_DIR/AppIcon-source-1024.png"
 rm -rf "$ICONSET"
 mkdir -p "$ICONSET"
 
-# Scales the source down to ~90.6% of a 1024x1024 canvas, centered on
+# Scales the source down to ~97% of a 1024x1024 canvas, centered on
 # transparent padding, before generating any icon size — without this, the
 # bezel's border touches the canvas edge with zero margin (confirmed: 0px
 # measured directly), which downstream compositing/anti-aliasing (in
 # particular, the small icon rendering inside the custom DMG's "drag to
 # Applications" window) clips straight into, making the border look cut
-# off at the edges rather than framing the icon.
+# off at the edges rather than framing the icon. Deliberately subtle (a
+# first attempt at 90.6% was visibly, clearly over-padded at small sizes,
+# confirmed directly) — this only needs to stop literal edge-touching, not
+# visibly shrink the icon.
 python3 - "$SRC" "$PADDED" <<'PYEOF'
 import sys
 from PIL import Image
@@ -30,7 +33,7 @@ src = Image.open(sys.argv[1]).convert("RGBA")
 canvas_size = 1024
 square = src.resize((canvas_size, canvas_size), Image.LANCZOS)
 
-content_size = round(canvas_size * 0.906)
+content_size = round(canvas_size * 0.97)
 resized = square.resize((content_size, content_size), Image.LANCZOS)
 
 canvas = Image.new("RGBA", (canvas_size, canvas_size), (0, 0, 0, 0))
