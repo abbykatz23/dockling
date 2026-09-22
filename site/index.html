@@ -173,23 +173,23 @@
   var dragging = false;
   var offsetX = 0, offsetY = 0;
 
+  var DEFAULT_COLOR = "yellow";
+  var COLORS = ["yellow", "pink", "babyblue", "orange", "lavender", "green", "blue", "tan", "gray"];
+
   // Yellow's images are the full-resolution originals (always loaded, so
   // worth the extra quality); the other 8 colors are a smaller size,
-  // fetched lazily — see DUCK_IMAGES — only when a letter of "dockling!"
-  // actually gets hovered, so a visitor who never hovers the title never
-  // pays for them.
-  var DUCK_IMAGES = {
-    yellow:   { idle: "assets/yellow-idle-hires.png", angry: "assets/yellow-angry-hires.png", sleepy: "assets/yellow-sleepy-hires.png" },
-    pink:     { idle: "assets/pink-idle.png", angry: "assets/pink-angry.png", sleepy: "assets/pink-sleepy.png" },
-    babyblue: { idle: "assets/babyblue-idle.png", angry: "assets/babyblue-angry.png", sleepy: "assets/babyblue-sleepy.png" },
-    orange:   { idle: "assets/orange-idle.png", angry: "assets/orange-angry.png", sleepy: "assets/orange-sleepy.png" },
-    lavender: { idle: "assets/lavender-idle.png", angry: "assets/lavender-angry.png", sleepy: "assets/lavender-sleepy.png" },
-    green:    { idle: "assets/green-idle.png", angry: "assets/green-angry.png", sleepy: "assets/green-sleepy.png" },
-    blue:     { idle: "assets/blue-idle.png", angry: "assets/blue-angry.png", sleepy: "assets/blue-sleepy.png" },
-    tan:      { idle: "assets/tan-idle.png", angry: "assets/tan-angry.png", sleepy: "assets/tan-sleepy.png" },
-    gray:     { idle: "assets/gray-idle.png", angry: "assets/gray-angry.png", sleepy: "assets/gray-sleepy.png" }
-  };
-  var DEFAULT_COLOR = "yellow";
+  // fetched lazily — see ensurePrefetched — only when a letter of
+  // "dockling!" actually gets hovered, so a visitor who never hovers the
+  // title never pays for them.
+  var DUCK_IMAGES = {};
+  COLORS.forEach(function (color) {
+    var suffix = color === DEFAULT_COLOR ? "-hires" : "";
+    DUCK_IMAGES[color] = {
+      idle: "assets/" + color + "-idle" + suffix + ".png",
+      angry: "assets/" + color + "-angry" + suffix + ".png",
+      sleepy: "assets/" + color + "-sleepy" + suffix + ".png"
+    };
+  });
   // What she settles back to once the mouse leaves a letter — starts as
   // the default, but clicking a letter "locks in" that color as the new
   // one to settle back to, until another letter gets clicked.
@@ -266,11 +266,8 @@
   var SLEEPY_TIMEOUT = 60 * 1000;
   var sleepyTimer = null;
 
-  function prefetchSleepy() {
-    prefetchPose(DEFAULT_COLOR, "sleepy");
-  }
-  if (duck.complete) prefetchSleepy();
-  else duck.addEventListener("load", prefetchSleepy);
+  if (duck.complete) ensurePrefetched(DEFAULT_COLOR);
+  else duck.addEventListener("load", function () { ensurePrefetched(DEFAULT_COLOR); });
 
   function goSleepy() {
     if (dragging) return;
@@ -305,12 +302,18 @@
   var hitCanvas = document.createElement("canvas");
   var hitCtx = hitCanvas.getContext("2d", { willReadFrequently: true });
   var hitReady = false;
+  var hitReadyPose = null; // which pose hitCanvas currently holds
 
+  // duck.src changes on every color swap too, not just a pose change, but
+  // different colors of the same pose share an identical silhouette — so
+  // this only actually redraws when the pose itself changed.
   function prepareHitCanvas() {
+    if (hitReady && hitReadyPose === currentPose) return;
     hitCanvas.width = duck.naturalWidth;
     hitCanvas.height = duck.naturalHeight;
     hitCtx.drawImage(duck, 0, 0);
     hitReady = true;
+    hitReadyPose = currentPose;
   }
   if (duck.complete) prepareHitCanvas();
   else duck.addEventListener("load", prepareHitCanvas);
@@ -394,18 +397,22 @@
   // clicked. Mouse-only on purpose (mouseenter/leave/click, not pointer
   // events) — touch has no real hover, so there's nothing meaningful to
   // wire up there.
+  // Shared by mouseenter and click below: switches her to `color` and
+  // makes sure angry+sleepy for it are on their way in. Idle is covered by
+  // applyDuckImage() alone, but without also prefetching here, dragging her
+  // (or just leaving her be for 60s) right after selecting a new color
+  // meant a real, visible delay the first time that pose was actually
+  // needed, waiting on a fetch that only just started.
+  function selectColor(color) {
+    currentColor = color;
+    applyDuckImage();
+    ensurePrefetched(color);
+  }
+
   document.querySelectorAll("#title span").forEach(function (letter) {
     var color = letter.getAttribute("data-color");
     letter.addEventListener("mouseenter", function () {
-      currentColor = color;
-      applyDuckImage();
-      // Idle is showing already (line above), but angry and sleepy for
-      // this color are still completely unfetched at this point — without
-      // this, dragging her (or just leaving her be for 60s) right after
-      // hovering a new color meant a real, visible delay the first time
-      // that pose was actually needed, waiting on a fetch that only just
-      // started.
-      ensurePrefetched(color);
+      selectColor(color);
     });
     letter.addEventListener("mouseleave", function () {
       currentColor = stickyColor;
@@ -413,13 +420,11 @@
     });
     letter.addEventListener("click", function () {
       stickyColor = color;
-      currentColor = color;
-      applyDuckImage();
-      // Also called here, not just from mouseenter above: if the cursor is
+      // Also selects here, not just from mouseenter above: if the cursor is
       // already resting on a letter when the page loads (or the user
       // returns via back-navigation without moving the mouse first), click
       // can fire with no preceding mouseenter at all.
-      ensurePrefetched(color);
+      selectColor(color);
     });
   });
 })();
