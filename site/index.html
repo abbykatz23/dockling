@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Dockling</title>
+<link rel="preload" as="image" href="assets/yellow-idle-hires.png">
+<link rel="preload" as="image" href="assets/yellow-angry-hires.png">
+<link rel="preload" as="audio" href="assets/quack.mp3">
+<style>
+  :root {
+    color-scheme: light;
+    /* Shared by .duck and .reveal below, so the hidden text's position and
+       size scale together with however big the duck actually renders. */
+    --duck-size: min(620px, 92vw);
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    height: 100%;
+    margin: 0;
+  }
+  body {
+    background: #ffffff;
+    color: #1a1a1a;
+    overflow: hidden;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+  }
+
+  /* The duck art keeps its real transparency (no backing shape) — instead,
+     .reveal is placed inside the one region of the artwork that's reliably
+     solid at rest (the belly, well clear of the wing's transparent gaps),
+     found by scanning the PNG's actual alpha channel rather than guessing.
+     Everything here scales off --duck-size, so it stays inside that region
+     whether the duck renders at its 620px cap or shrunk down on a phone. */
+  .reveal {
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, calc(-50% + var(--duck-size) * 0.182));
+    text-align: center;
+  }
+  .reveal p {
+    margin: 0 0 calc(var(--duck-size) * 0.012);
+    font-size: calc(var(--duck-size) * 0.034);
+    line-height: 1.15;
+  }
+  .reveal a {
+    display: inline-block;
+    font-size: calc(var(--duck-size) * 0.025);
+    padding: calc(var(--duck-size) * 0.013) calc(var(--duck-size) * 0.028);
+    border: 2px solid #1a1a1a;
+    border-radius: 999px;
+    text-decoration: none;
+    color: #1a1a1a;
+    transition: background .15s ease, color .15s ease;
+    white-space: nowrap;
+  }
+  .reveal a:hover { background: #1a1a1a; color: #fff; }
+
+  .duck {
+    /* Positioned via plain left/top, set once by the script on load, and
+       kept that way for its whole life — no translate(-50%,-50%) centering
+       trick. Mixing that trick with `scale` threw off which point it grew
+       from (it visibly crept up-left on hover instead of growing evenly),
+       since the two would compose around different origins depending on
+       whether .duck had been dragged yet. One positioning scheme the whole
+       time keeps `scale`'s default center-of-the-box origin doing exactly
+       that: growing evenly outward in every direction. */
+    position: fixed;
+    width: var(--duck-size);
+    aspect-ratio: 1 / 1;
+    cursor: default; /* JS owns the real cursor once alpha hit-testing is ready */
+    -webkit-user-select: none;
+    user-select: none;
+    -webkit-user-drag: none;
+    touch-action: none;
+    filter: drop-shadow(0 14px 18px rgba(0, 0, 0, 0.14));
+    scale: 1;
+    transition: scale .15s ease;
+  }
+  /* Driven by JS (alpha hit-testing below), not :hover/:active — those are
+     bounding-box only, and the box around this art is a lot bigger than
+     the duck actually drawn inside it. */
+  .duck.hovering { scale: 1.06; }
+</style>
+</head>
+<body>
+
+<div class="reveal" id="reveal">
+  <p>Curious?</p>
+  <a id="download-link" href="https://github.com/abbykatz23/dockling/releases/latest/download/Dockling.dmg">Download Dockling for Mac</a>
+</div>
+
+<img class="duck" id="duck" src="assets/yellow-idle-hires.png" alt="A duck. Try dragging her.">
+
+<script>
+(function () {
+  var duck = document.getElementById("duck");
+  var dragging = false;
+  var offsetX = 0, offsetY = 0;
+  var IDLE_SRC = "assets/yellow-idle-hires.png";
+  var ANGRY_SRC = "assets/yellow-angry-hires.png";
+
+  function clamp(value, min, max) {
+    return Math.max(min, Math.min(max, value));
+  }
+
+  // How much of the duck must stay on-screen — small enough that she can
+  // be dragged mostly off any edge, large enough to still grab her back.
+  var MIN_VISIBLE = 70;
+
+  // Positioned via left/top from the very start (see the .duck CSS
+  // comment) — this sets that starting position, and keeps it centered
+  // across a resize for as long as she hasn't been dragged yet, which is
+  // what the old CSS-transform centering trick did automatically.
+  function centerDuck() {
+    duck.style.left = (window.innerWidth / 2 - duck.offsetWidth / 2) + "px";
+    duck.style.top = (window.innerHeight / 2 - duck.offsetHeight / 2) + "px";
+  }
+  centerDuck();
+  window.addEventListener("resize", function () {
+    if (!dragging) centerDuck();
+  });
+
+  // Alpha hit-testing: the <img> element's box is a big square, but the
+  // duck drawn inside it is an irregular shape with real transparency
+  // around it — without this, hovering (or grabbing) the empty corners of
+  // that square would act like hovering/grabbing the duck herself. A
+  // hidden canvas holds the same art at its natural resolution purely so
+  // its pixels can be read back with getImageData.
+  var hitCanvas = document.createElement("canvas");
+  var hitCtx = hitCanvas.getContext("2d", { willReadFrequently: true });
+  var hitReady = false;
+
+  function prepareHitCanvas() {
+    hitCanvas.width = duck.naturalWidth;
+    hitCanvas.height = duck.naturalHeight;
+    hitCtx.drawImage(duck, 0, 0);
+    hitReady = true;
+  }
+  if (duck.complete) prepareHitCanvas();
+  else duck.addEventListener("load", prepareHitCanvas);
+
+  function alphaAt(clientX, clientY) {
+    if (!hitReady) return 0; // fail closed — no false grabs before it's ready
+    var rect = duck.getBoundingClientRect();
+    var nx = (clientX - rect.left) / rect.width;
+    var ny = (clientY - rect.top) / rect.height;
+    if (nx < 0 || nx > 1 || ny < 0 || ny > 1) return 0;
+    var px = Math.min(hitCanvas.width - 1, Math.floor(nx * hitCanvas.width));
+    var py = Math.min(hitCanvas.height - 1, Math.floor(ny * hitCanvas.height));
+    return hitCtx.getImageData(px, py, 1, 1).data[3];
+  }
+  var ALPHA_THRESHOLD = 40;
+
+  function place(clientX, clientY) {
+    var w = duck.offsetWidth, h = duck.offsetHeight;
+    var x = clamp(clientX - offsetX, MIN_VISIBLE - w, window.innerWidth - MIN_VISIBLE);
+    var y = clamp(clientY - offsetY, MIN_VISIBLE - h, window.innerHeight - MIN_VISIBLE);
+    duck.style.left = x + "px";
+    duck.style.top = y + "px";
+  }
+
+  duck.addEventListener("pointerdown", function (e) {
+    if (alphaAt(e.clientX, e.clientY) <= ALPHA_THRESHOLD) return; // clicked a transparent corner
+
+    var rect = duck.getBoundingClientRect();
+    offsetX = e.clientX - rect.left;
+    offsetY = e.clientY - rect.top;
+    dragging = true;
+    duck.classList.add("hovering");
+    duck.style.cursor = "grabbing";
+    duck.src = ANGRY_SRC; // she does not appreciate being picked up
+    duck.setPointerCapture(e.pointerId);
+  });
+
+  duck.addEventListener("pointermove", function (e) {
+    if (dragging) {
+      place(e.clientX, e.clientY);
+      return;
+    }
+    var onDuck = alphaAt(e.clientX, e.clientY) > ALPHA_THRESHOLD;
+    duck.classList.toggle("hovering", onDuck);
+    duck.style.cursor = onDuck ? "grab" : "default";
+  });
+
+  duck.addEventListener("pointerleave", function () {
+    if (dragging) return;
+    duck.classList.remove("hovering");
+    duck.style.cursor = "default";
+  });
+
+  function stop() {
+    dragging = false;
+    duck.src = IDLE_SRC; // back to her usual self once let go
+  }
+  duck.addEventListener("pointerup", stop);
+  duck.addEventListener("pointercancel", stop);
+
+  // This link points straight at the DMG asset (not the GitHub releases
+  // page), so clicking it triggers a real file download rather than a page
+  // navigation — the browser never leaves this page, so the quack always
+  // gets to play out in full.
+  var downloadLink = document.getElementById("download-link");
+  downloadLink.addEventListener("click", function () {
+    try {
+      new Audio("assets/quack.mp3").play().catch(function () {});
+    } catch (e) {}
+  });
+})();
+</script>
+</body>
+</html>

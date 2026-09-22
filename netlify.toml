@@ -1,0 +1,7 @@
+[build]
+  publish = "site"
+  # Only rebuild when something inside site/ actually changed — this repo
+  # gets pushed to constantly for the Dockling app itself, and none of that
+  # should burn a Netlify build. `git diff --quiet` exits 0 (skip the
+  # build) when there's no diff in site/, and 1 (build) when there is.
+  ignore = "git diff --quiet $CACHED_COMMIT_REF $COMMIT_REF -- site/"
