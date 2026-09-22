@@ -271,9 +271,31 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
     }
 
     @objc private func checkboxChanged(_ sender: NSButton) {
+        let newFocusVSCodeOnClick = focusVSCodeCheckbox.state == .on
+        let focusSettingChanged = newFocusVSCodeOnClick != config.focusVSCodeOnClick
+
         config.subagentDucks = subagentDucksCheckbox.state == .on
-        config.focusVSCodeOnClick = focusVSCodeCheckbox.state == .on
+        config.focusVSCodeOnClick = newFocusVSCodeOnClick
         config.save()
+
+        // subagentDucks takes effect on its own for any session that
+        // spawns from here on (a session child loads its own copy of
+        // config fresh at its own startup) — but focusVSCodeOnClick is
+        // read once by the *dispatcher*, a single long-running process
+        // that doesn't reload config per event, so toggling it here would
+        // otherwise silently do nothing until the next login. Restarting
+        // it is safe: it persists and reconciles its session table on
+        // startup specifically so a restart doesn't orphan or duplicate
+        // any already-running duck (see Dispatcher's own doc comment).
+        if focusSettingChanged {
+            DispatchQueue.global(qos: .userInitiated).async {
+                do {
+                    try LaunchdRegistration.install()
+                } catch {
+                    fputs("[dockling] failed to restart the dispatcher after a settings change: \(error)\n", stderr)
+                }
+            }
+        }
     }
 
     @objc private func uninstallClicked() {
