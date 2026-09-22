@@ -14,6 +14,9 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
     private var focusVSCodeCheckbox: NSButton!
     private let onUninstall: () -> Void
     private let onReinstall: () -> Void
+    // Reused across double-clicks rather than a new window each time, so
+    // clicking several ducks in a row doesn't pile up orphaned windows.
+    private var previewWindowController: NSWindowController?
 
     private static let windowWidth: CGFloat = 460
 
@@ -201,12 +204,19 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
     // one — invisible, but it still occupies its spot in the layout.
     private func makeLegendRow(assetNames: [String], label text: String) -> NSView {
         let slots = (0..<2).map { index -> NSImageView in
-            let imageView = NSImageView()
-            imageView.image = index < assetNames.count ? Self.duckImage(assetNames[index]) : nil
+            let assetName = index < assetNames.count ? assetNames[index] : nil
+            let imageView = LegendImageView(assetName: assetName)
+            imageView.image = assetName.flatMap(Self.duckImage)
             imageView.imageScaling = .scaleProportionallyUpOrDown
             imageView.translatesAutoresizingMaskIntoConstraints = false
             imageView.widthAnchor.constraint(equalToConstant: 28).isActive = true
             imageView.heightAnchor.constraint(equalToConstant: 28).isActive = true
+            if assetName != nil {
+                imageView.toolTip = "Double-click to enlarge"
+                let click = NSClickGestureRecognizer(target: self, action: #selector(self.legendImageDoubleClicked(_:)))
+                click.numberOfClicksRequired = 2
+                imageView.addGestureRecognizer(click)
+            }
             return imageView
         }
         let iconGroup = NSStackView(views: slots)
@@ -247,5 +257,50 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
 
     @objc private func closeClicked() {
         window?.close()
+    }
+
+    @objc private func legendImageDoubleClicked(_ sender: NSClickGestureRecognizer) {
+        guard let imageView = sender.view as? LegendImageView,
+              let assetName = imageView.assetName,
+              let image = Self.duckImage(assetName) else { return }
+        showPreview(image)
+    }
+
+    private func showPreview(_ image: NSImage) {
+        let size: CGFloat = 220
+        if previewWindowController == nil {
+            let panel = NSPanel(
+                contentRect: NSRect(x: 0, y: 0, width: size, height: size),
+                styleMask: [.titled, .closable, .utilityWindow],
+                backing: .buffered,
+                defer: false
+            )
+            panel.title = ""
+            panel.isReleasedWhenClosed = false
+            let imageView = NSImageView(frame: NSRect(x: 0, y: 0, width: size, height: size))
+            imageView.imageScaling = .scaleProportionallyUpOrDown
+            imageView.autoresizingMask = [.width, .height]
+            panel.contentView = imageView
+            previewWindowController = NSWindowController(window: panel)
+        }
+        (previewWindowController?.window?.contentView as? NSImageView)?.image = image
+        previewWindowController?.window?.center()
+        previewWindowController?.showWindow(nil)
+    }
+}
+
+// Tags an icon slot with which pose asset it shows, if any, so a double-
+// click handler shared by every slot can tell which image to enlarge
+// without needing a separate closure/selector per row.
+private final class LegendImageView: NSImageView {
+    let assetName: String?
+
+    init(assetName: String?) {
+        self.assetName = assetName
+        super.init(frame: .zero)
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) not supported")
     }
 }
