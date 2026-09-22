@@ -352,7 +352,11 @@
     duck.setPointerCapture(e.pointerId);
   });
 
-  duck.addEventListener("pointermove", function (e) {
+  // Listened on window, not duck, so this keeps running even over a
+  // transparent pixel where duck's own pointer-events is currently "none"
+  // (see below) — a listener on duck itself would stop receiving events
+  // there at all, since duck wouldn't be a valid hit target in that spot.
+  window.addEventListener("pointermove", function (e) {
     if (dragging) {
       place(e.clientX, e.clientY);
       return;
@@ -360,12 +364,15 @@
     var onDuck = alphaAt(e.clientX, e.clientY) > ALPHA_THRESHOLD;
     duck.classList.toggle("hovering", onDuck);
     duck.style.cursor = onDuck ? "grab" : "default";
-  });
-
-  duck.addEventListener("pointerleave", function () {
-    if (dragging) return;
-    duck.classList.remove("hovering");
-    duck.style.cursor = "default";
+    // duck's <img> box is a big square, well beyond her actual silhouette
+    // (see the alpha hit-testing comment above) — without this, that whole
+    // square swallows hover/clicks even over its transparent regions,
+    // including wherever it happens to overlap .reveal's download button,
+    // making the button's hover state unreliable any time duck's *box*
+    // (not just her visible art) sits near it. Shrinking her real
+    // interactive area to just her opaque pixels lets a transparent-region
+    // hover/click pass straight through to whatever's actually underneath.
+    duck.style.pointerEvents = onDuck ? "auto" : "none";
   });
 
   function stop() {
