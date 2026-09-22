@@ -209,6 +209,18 @@
     new Image().src = DUCK_IMAGES[color][pose];
   }
 
+  // Prefetches angry+sleepy for a color at most once, no matter how many
+  // times it gets hovered/clicked — without this, idly sweeping the mouse
+  // back over letters already visited kept reissuing fetches for images
+  // that were already cached (harmless, but pure waste).
+  var prefetchedColors = {};
+  function ensurePrefetched(color) {
+    if (prefetchedColors[color]) return;
+    prefetchedColors[color] = true;
+    prefetchPose(color, "angry");
+    prefetchPose(color, "sleepy");
+  }
+
   function clamp(value, min, max) {
     return Math.max(min, Math.min(max, value));
   }
@@ -393,8 +405,7 @@
       // hovering a new color meant a real, visible delay the first time
       // that pose was actually needed, waiting on a fetch that only just
       // started.
-      prefetchPose(color, "angry");
-      prefetchPose(color, "sleepy");
+      ensurePrefetched(color);
     });
     letter.addEventListener("mouseleave", function () {
       currentColor = stickyColor;
@@ -404,6 +415,11 @@
       stickyColor = color;
       currentColor = color;
       applyDuckImage();
+      // Also called here, not just from mouseenter above: if the cursor is
+      // already resting on a letter when the page loads (or the user
+      // returns via back-navigation without moving the mouse first), click
+      // can fire with no preceding mouseenter at all.
+      ensurePrefetched(color);
     });
   });
 })();
