@@ -16,7 +16,7 @@ import Foundation
 /// no repo in sight, possibly not even on disk anywhere permanent yet if
 /// launched straight from a mounted DMG). Everything it needs is either
 /// inlined below (the hook script) or already compiled into this binary's
-/// own resource bundle via SPM (the icon/sound assets, read via Bundle.module).
+/// own SPM resource bundle (the icon/sound assets, read via AssetResolver.resourceBundle).
 enum Installer {
     /// A permanent copy of whatever binary is currently running this code,
     /// independent of where that happened to be — most importantly, a DMG
@@ -112,7 +112,7 @@ enum Installer {
         // than assuming exactly how Bundle.module.resourceURL relates to
         // that subdirectory convention, which isn't the same for every
         // Package.swift resource-bundling configuration.
-        guard let oneKnownAsset = Bundle.module.url(forResource: "idle", withExtension: "png", subdirectory: "Resources/yellow") else {
+        guard let oneKnownAsset = AssetResolver.resourceBundle.url(forResource: "idle", withExtension: "png", subdirectory: "Resources/yellow") else {
             throw InstallError(description: "could not locate bundled icon/sound resources")
         }
         let sourceDir = oneKnownAsset.deletingLastPathComponent().deletingLastPathComponent()

@@ -92,6 +92,22 @@ APP="$STAGING/Dockling.app"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$BINARY" "$APP/Contents/MacOS/DocklingAgent"
 cp "$REPO_ROOT/icons/AppIcon.icns" "$APP/Contents/Resources/AppIcon.icns"
+
+# AssetResolver.resourceBundle (a hand-written replacement for SPM's own
+# generated Bundle.module accessor — see its doc comment for the full story)
+# checks Contents/Resources/<bundle> for a packaged .app. Without this copy
+# at all, every shipped release was one resource access away from a real
+# crash (EXC_BREAKPOINT, confirmed by reproducing it on a clean VM install)
+# surfacing as "Dockling quit unexpectedly" — not a Dockling error alert,
+# since nothing catches a fatalError. Every dev-flow build worked fine
+# specifically because SPM's own local build output already places this
+# bundle next to the binary, no Contents/ involved at all.
+RESOURCE_BUNDLE=$(find -L "$(dirname "$BINARY")" -maxdepth 1 -name "*.bundle" -print -quit)
+if [ -z "$RESOURCE_BUNDLE" ]; then
+  echo "error: no .bundle found next to $BINARY — resource loading would crash at runtime" >&2
+  exit 1
+fi
+cp -R "$RESOURCE_BUNDLE" "$APP/Contents/Resources/$(basename "$RESOURCE_BUNDLE")"
 cat > "$APP/Contents/Info.plist" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">

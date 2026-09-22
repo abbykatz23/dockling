@@ -153,7 +153,7 @@ final class FirstRunDelegate: NSObject, NSApplicationDelegate {
         // yellow specifically since that's the one color always bundled at
         // full quality (see DUCK_IMAGES' own reasoning on the landing page).
         func poseImage(_ name: String) -> NSImage? {
-            guard let url = Bundle.module.url(forResource: name, withExtension: "png", subdirectory: "Resources/yellow") else { return nil }
+            guard let url = AssetResolver.resolveURL(name: name, ext: "png", subdir: "yellow") else { return nil }
             return NSImage(contentsOf: url)
         }
         func menuIcon(_ images: [NSImage?], size: CGFloat = 20) -> NSImage? {
