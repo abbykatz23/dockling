@@ -24,9 +24,38 @@ enum Installer {
     /// ejected. Both install.sh's dev flow and the shipped app's first-run
     /// install point launchd at this path, not at the original location,
     /// so auto-start keeps working after that.
-    static let installedBinaryPath = ((NSHomeDirectory() as NSString)
-        .appendingPathComponent(".dockling/bin") as NSString)
-        .appendingPathComponent("DocklingAgent")
+    ///
+    /// For a real .app bundle (the shipped, notarized case), this has to be
+    /// the executable *inside a copied-whole bundle*, not a bare extracted
+    /// file: codesign embeds a hash of the bundle's Info.plist directly
+    /// into a bundle main executable's own signature, so the Info.plist has
+    /// to keep sitting right next to it — confirmed directly (not a guess):
+    /// copying just the extracted executable out on its own breaks
+    /// `codesign --verify` (invalid Info.plist), and the real, shipped
+    /// install hit exactly this — the dispatcher got silently SIGKILL'd by
+    /// the kernel's own code-integrity enforcement at every launch, with no
+    /// duck ever appearing anywhere and nothing useful in the log, since it
+    /// never got far enough to write one. For the from-source dev flow (a
+    /// bare, non-bundled binary, never wrapped/re-signed as a bundle's main
+    /// executable), this is just that single copied file, as before.
+    static var installedBinaryPath: String {
+        guard isRealAppBundle else {
+            return ((NSHomeDirectory() as NSString)
+                .appendingPathComponent(".dockling/bin") as NSString)
+                .appendingPathComponent("DocklingAgent")
+        }
+        return ((installedAppBundlePath as NSString)
+            .appendingPathComponent("Contents/MacOS") as NSString)
+            .appendingPathComponent("DocklingAgent")
+    }
+
+    private static let installedAppBundlePath = ((NSHomeDirectory() as NSString)
+        .appendingPathComponent(".dockling") as NSString)
+        .appendingPathComponent("Dockling.app")
+
+    private static var isRealAppBundle: Bool {
+        Bundle.main.bundlePath.hasSuffix(".app") && Bundle.main.infoDictionary != nil
+    }
 
     static func run() {
         let token = DocklingSecret.load()
@@ -91,6 +120,41 @@ enum Installer {
     }
 
     private static func installBinary(fileManager: FileManager) {
+        if isRealAppBundle {
+            installAppBundle(fileManager: fileManager)
+        } else {
+            installBareBinary(fileManager: fileManager)
+        }
+    }
+
+    /// See installedBinaryPath's doc comment — the whole bundle has to be
+    /// copied, not just its executable, so the Info.plist a bundle main
+    /// executable's own signature is bound to stays right next to it.
+    private static func installAppBundle(fileManager: FileManager) {
+        let bundlePath = Bundle.main.bundlePath
+        do {
+            try fileManager.createDirectory(atPath: (installedAppBundlePath as NSString).deletingLastPathComponent, withIntermediateDirectories: true)
+            if fileManager.fileExists(atPath: installedAppBundlePath) {
+                try fileManager.removeItem(atPath: installedAppBundlePath)
+            }
+            try fileManager.copyItem(atPath: bundlePath, toPath: installedAppBundlePath)
+            try fileManager.setAttributes([.posixPermissions: 0o755], ofItemAtPath: installedBinaryPath)
+            // A straight file copy carries the quarantine flag over from
+            // the original download — harmless for how launchd execs this
+            // directly, but stripped anyway so nothing about this copy
+            // still looks like an unverified download later.
+            let clearQuarantine = Process()
+            clearQuarantine.executableURL = URL(fileURLWithPath: "/usr/bin/xattr")
+            clearQuarantine.arguments = ["-cr", installedAppBundlePath]
+            try? clearQuarantine.run()
+            clearQuarantine.waitUntilExit()
+        } catch {
+            fputs("error: could not install app bundle \(bundlePath) -> \(installedAppBundlePath): \(error)\n", stderr)
+            exit(1)
+        }
+    }
+
+    private static func installBareBinary(fileManager: FileManager) {
         guard let runningPath = Bundle.main.executablePath else {
             fputs("error: could not resolve own executable path\n", stderr)
             exit(1)
