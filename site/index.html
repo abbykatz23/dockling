@@ -112,6 +112,7 @@
   var offsetX = 0, offsetY = 0;
   var IDLE_SRC = "assets/yellow-idle-hires.png";
   var ANGRY_SRC = "assets/yellow-angry-hires.png";
+  var SLEEPY_SRC = "assets/yellow-sleepy-hires.png";
 
   function clamp(value, min, max) {
     return Math.max(min, Math.min(max, value));
@@ -146,6 +147,48 @@
     duck.addEventListener("load", revealPage);
     duck.addEventListener("error", revealPage);
   }
+
+  // Falls asleep after 60s with no activity anywhere on the page — not
+  // just no interaction with her specifically. Any real drag already keeps
+  // resetting this via pointermove, so she can never actually doze off
+  // mid-drag; the `dragging` check below is just a defensive second layer
+  // in case some browser ever fires these in a different order than
+  // expected. Prefetched lazily (not <link rel=preload>, which would
+  // compete for bandwidth with the art actually needed for first paint)
+  // once the page is already up and idle-ish.
+  var SLEEPY_TIMEOUT = 60 * 1000;
+  var sleepyTimer = null;
+  var isSleepy = false;
+
+  function prefetchSleepy() {
+    new Image().src = SLEEPY_SRC;
+  }
+  if (duck.complete) prefetchSleepy();
+  else duck.addEventListener("load", prefetchSleepy);
+
+  function goSleepy() {
+    if (dragging) return;
+    isSleepy = true;
+    duck.src = SLEEPY_SRC;
+  }
+
+  function scheduleSleepy() {
+    clearTimeout(sleepyTimer);
+    sleepyTimer = setTimeout(goSleepy, SLEEPY_TIMEOUT);
+  }
+
+  function markActivity() {
+    if (isSleepy && !dragging) {
+      isSleepy = false;
+      duck.src = IDLE_SRC;
+    }
+    scheduleSleepy();
+  }
+
+  ["pointerdown", "pointermove", "keydown", "wheel"].forEach(function (type) {
+    window.addEventListener(type, markActivity, { passive: true });
+  });
+  scheduleSleepy(); // the clock starts from page load, with zero activity yet
 
   // Alpha hit-testing: the <img> element's box is a big square, but the
   // duck drawn inside it is an irregular shape with real transparency
@@ -193,6 +236,7 @@
     offsetX = e.clientX - rect.left;
     offsetY = e.clientY - rect.top;
     dragging = true;
+    isSleepy = false; // set before ANGRY_SRC below so a later markActivity() call can't stomp on it
     duck.classList.add("hovering");
     duck.style.cursor = "grabbing";
     duck.src = ANGRY_SRC; // she does not appreciate being picked up
@@ -218,6 +262,7 @@
   function stop() {
     dragging = false;
     duck.src = IDLE_SRC; // back to her usual self once let go
+    scheduleSleepy(); // letting go counts as activity too, even with no pointermove in between
   }
   duck.addEventListener("pointerup", stop);
   duck.addEventListener("pointercancel", stop);
