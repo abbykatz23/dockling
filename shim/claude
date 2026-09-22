@@ -40,4 +40,19 @@ if [ -n "${TMUX:-}" ]; then
     exec "$REAL_CLAUDE" "$@"
 fi
 
-exec tmux -f "$SELF_DIR/tmux-dockling.conf" new-session -s "dockling-$$" "$REAL_CLAUDE" "$@"
+# Raise the file descriptor limit before starting anything — confirmed the
+# hard way: a plain `tmux new-session` inherited a stale 256-fd soft limit
+# (from whenever that tmux *server* itself first started, potentially in a
+# very different, more constrained context — tmux server processes keep
+# whatever limit they started with for their whole lifetime, not whatever
+# limit a later client invoking `new-session` happens to have), and Claude
+# Code itself refused to start under it ("low max file descriptors"). Raise
+# to the hard limit rather than picking a fixed number, so this stays
+# correct regardless of the OS/shell's own default.
+ulimit -n "$(ulimit -Hn)" 2>/dev/null || true
+
+# A dedicated socket (-L), not tmux's default — so a Dockling-wrapped
+# session never shares a server (and never inherits whatever resource
+# limits or stale state that server happened to start with) with any other
+# tmux usage on the machine, Dockling's own or the user's.
+exec tmux -L dockling -f "$SELF_DIR/tmux-dockling.conf" new-session -s "dockling-$$" "$REAL_CLAUDE" "$@"

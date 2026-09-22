@@ -20,7 +20,15 @@ enum TmuxReply {
     private static func sendKeys(_ args: [String], toPane pane: String) {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-        process.arguments = ["tmux", "send-keys", "-t", pane] + args
+        // -L dockling: shim/claude starts its tmux session on this same
+        // dedicated socket, not tmux's default one — targeting the default
+        // socket here would silently miss the pane entirely (confirmed:
+        // that's exactly the class of bug that motivated giving the shim
+        // its own socket in the first place — it must never share a server,
+        // and by extension a socket, with any other tmux usage). Keep this
+        // name in sync with shim/claude's own `-L dockling` if it ever
+        // changes.
+        process.arguments = ["tmux", "-L", "dockling", "send-keys", "-t", pane] + args
         do {
             try process.run()
             process.waitUntilExit() // keep the three calls strictly ordered
