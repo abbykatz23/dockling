@@ -18,9 +18,16 @@
 #      (developer.apple.com/account > Membership details):
 #        xcrun notarytool store-credentials "$NOTARY_PROFILE" \
 #          --apple-id "you@example.com" --team-id "TEAMID" --password "xxxx-xxxx-xxxx-xxxx"
+#   3. create-dmg, for the custom drag-to-install window (background image,
+#      icon layout): brew install create-dmg
 #
 # Usage: tools/notarize_release.sh
 set -eu
+
+command -v create-dmg >/dev/null 2>&1 || {
+  echo "error: 'create-dmg' is required (brew install create-dmg)" >&2
+  exit 1
+}
 
 NOTARY_PROFILE="dockling-notary"
 
@@ -120,11 +127,27 @@ codesign --force --options runtime --timestamp --sign "$IDENTITY" "$APP"
 codesign --verify --strict --verbose=2 "$APP"
 
 echo "Building DMG..."
-# A symlink to /Applications alongside the .app is what makes Finder show
-# the familiar "drag to Applications" install pattern when the DMG opens.
-ln -s /Applications "$STAGING/Applications"
-hdiutil create -volname "Dockling" -srcfolder "$STAGING" -ov -format UDZO "$DMG_PATH"
+rm -f "$DMG_PATH"
+# create-dmg drives Finder over AppleScript to lay out the window (icon
+# positions, background) — it can return a non-zero exit code even after
+# successfully producing the DMG (a known quirk, not unique to this setup),
+# so the real success check is just whether the file exists afterward.
+create-dmg \
+  --volname "Dockling" \
+  --background "$REPO_ROOT/tools/dmg_assets/background.png" \
+  --window-size 660 420 \
+  --icon-size 100 \
+  --icon "Dockling.app" 165 190 \
+  --app-drop-link 495 190 \
+  --hide-extension "Dockling.app" \
+  "$DMG_PATH" \
+  "$STAGING" || true
 rm -rf "$STAGING"
+
+if [ ! -f "$DMG_PATH" ]; then
+  echo "error: create-dmg did not produce $DMG_PATH" >&2
+  exit 1
+fi
 
 # The binary inside is already signed, but the DMG *container* itself also
 # needs its own signature — without this, notarization and stapling both
