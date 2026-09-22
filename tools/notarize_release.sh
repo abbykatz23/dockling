@@ -128,6 +128,16 @@ codesign --verify --strict --verbose=2 "$APP"
 
 echo "Building DMG..."
 rm -f "$DMG_PATH"
+# create-dmg only ever copies the single 1x file passed to --background,
+# so a Retina Mac (effectively everyone) upscales it live and it looks
+# soft. Finder's own background-picture rendering respects a "@2x" sibling
+# in the same folder automatically (the standard HiDPI resource-variant
+# convention) — create-dmg builds the DMG from $STAGING via a plain
+# `hdiutil create -srcfolder`, so anything already sitting in
+# $STAGING/.background survives that untouched, and create-dmg's own copy
+# of the 1x file (by name) doesn't touch this differently-named sibling.
+mkdir -p "$STAGING/.background"
+cp "$REPO_ROOT/tools/dmg_assets/background@2x.png" "$STAGING/.background/background@2x.png"
 # create-dmg drives Finder over AppleScript to lay out the window (icon
 # positions, background) — it can return a non-zero exit code even after
 # successfully producing the DMG (a known quirk, not unique to this setup),
