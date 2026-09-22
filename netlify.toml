@@ -4,4 +4,8 @@
   # gets pushed to constantly for the Dockling app itself, and none of that
   # should burn a Netlify build. `git diff --quiet` exits 0 (skip the
   # build) when there's no diff in site/, and 1 (build) when there is.
-  ignore = "git diff --quiet $CACHED_COMMIT_REF $COMMIT_REF -- site/"
+  # The `[ -n ... ]` guard matters on a site's first-ever deploy: there's no
+  # prior build to diff against yet, so $CACHED_COMMIT_REF is empty — without
+  # this, that made the whole ignore command misbehave and skip the build
+  # entirely instead of running it.
+  ignore = "[ -n \"$CACHED_COMMIT_REF\" ] && git diff --quiet $CACHED_COMMIT_REF $COMMIT_REF -- site/"
