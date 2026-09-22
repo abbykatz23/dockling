@@ -111,18 +111,64 @@ final class FirstRunDelegate: NSObject, NSApplicationDelegate {
         alert.addButton(withTitle: "Continue")
         alert.addButton(withTitle: "Cancel")
 
-        let subagentDucksCheckbox = NSButton(checkboxWithTitle: "Show a smaller duck for each subagent", target: nil, action: nil)
-        subagentDucksCheckbox.state = config.subagentDucks ? .on : .off
+        let rowWidth: CGFloat = 400
+        let checkboxFont = NSFont.systemFont(ofSize: NSFont.systemFontSize)
 
-        let replyPopoverCheckbox = NSButton(checkboxWithTitle: "Reply to Claude by clicking its Dock icon", target: nil, action: nil)
-        replyPopoverCheckbox.state = config.replyPopover ? .on : .off
+        // NSButton's own intrinsic size assumes a single line unless told
+        // otherwise — without wraps=true plus an explicit, measured height,
+        // a title longer than the row fits just gets truncated ("Asks for
+        // accessibility a…", confirmed happening) rather than wrapping.
+        func makeCheckbox(_ title: String, isOn: Bool) -> NSButton {
+            let checkbox = NSButton(checkboxWithTitle: title, target: nil, action: nil)
+            checkbox.state = isOn ? .on : .off
+            (checkbox.cell as? NSButtonCell)?.wraps = true
+            checkbox.translatesAutoresizingMaskIntoConstraints = false
+            checkbox.widthAnchor.constraint(equalToConstant: rowWidth).isActive = true
+            let textWidth = rowWidth - 22 // checkbox glyph + its own leading gap
+            let textHeight = ceil((title as NSString).boundingRect(
+                with: NSSize(width: textWidth, height: .greatestFiniteMagnitude),
+                options: [.usesLineFragmentOrigin, .usesFontLeading],
+                attributes: [.font: checkboxFont]
+            ).height)
+            checkbox.heightAnchor.constraint(greaterThanOrEqualToConstant: max(18, textHeight + 2)).isActive = true
+            return checkbox
+        }
 
-        let focusVSCodeCheckbox = NSButton(checkboxWithTitle: "Focus VS Code when I click its duck (asks for Accessibility access)", target: nil, action: nil)
-        focusVSCodeCheckbox.state = config.focusVSCodeOnClick ? .on : .off
+        let subagentDucksCheckbox = makeCheckbox("Show a smaller duck for each subagent", isOn: config.subagentDucks)
+        let replyPopoverCheckbox = makeCheckbox("Reply to Claude by clicking its Dock icon", isOn: config.replyPopover)
+        let focusVSCodeCheckbox = makeCheckbox("Focus Claude session when clicking duck (asks for Accessibility access)", isOn: config.focusVSCodeOnClick)
 
         let commitPoseLabel = NSTextField(labelWithString: "Duck shown for a commit:")
+
+        // A small preview of the actual pose art beside each option, rather
+        // than asking someone to recognize "bride"/"groom" as plain text —
+        // yellow specifically since that's the one color always bundled at
+        // full quality (see DUCK_IMAGES' own reasoning on the landing page).
+        func poseImage(_ name: String) -> NSImage? {
+            guard let url = Bundle.module.url(forResource: name, withExtension: "png", subdirectory: "Resources/yellow") else { return nil }
+            return NSImage(contentsOf: url)
+        }
+        func menuIcon(_ images: [NSImage?], size: CGFloat = 20) -> NSImage? {
+            let images = images.compactMap { $0 }
+            guard !images.isEmpty else { return nil }
+            let icon = NSImage(size: NSSize(width: size * CGFloat(images.count), height: size))
+            icon.lockFocus()
+            for (index, image) in images.enumerated() {
+                image.draw(in: NSRect(x: CGFloat(index) * size, y: 0, width: size, height: size), from: .zero, operation: .sourceOver, fraction: 1)
+            }
+            icon.unlockFocus()
+            return icon
+        }
+        let brideImage = poseImage("committing-bride")
+        let groomImage = poseImage("committing-groom")
+
         let commitPosePopup = NSPopUpButton()
-        commitPosePopup.addItems(withTitles: ["Random", "Bride", "Groom"])
+        commitPosePopup.addItem(withTitle: "Bride/Groom")
+        commitPosePopup.lastItem?.image = menuIcon([brideImage, groomImage])
+        commitPosePopup.addItem(withTitle: "Bride")
+        commitPosePopup.lastItem?.image = menuIcon([brideImage])
+        commitPosePopup.addItem(withTitle: "Groom")
+        commitPosePopup.lastItem?.image = menuIcon([groomImage])
         switch config.commitPose {
         case .random: commitPosePopup.selectItem(at: 0)
         case .bride: commitPosePopup.selectItem(at: 1)
@@ -136,17 +182,7 @@ final class FirstRunDelegate: NSObject, NSApplicationDelegate {
         stack.orientation = .vertical
         stack.alignment = .leading
         stack.spacing = 12
-        stack.translatesAutoresizingMaskIntoConstraints = false
-
-        let container = NSView(frame: NSRect(x: 0, y: 0, width: 400, height: 110))
-        container.addSubview(stack)
-        NSLayoutConstraint.activate([
-            stack.leadingAnchor.constraint(equalTo: container.leadingAnchor),
-            stack.trailingAnchor.constraint(lessThanOrEqualTo: container.trailingAnchor),
-            stack.topAnchor.constraint(equalTo: container.topAnchor),
-            stack.bottomAnchor.constraint(equalTo: container.bottomAnchor),
-        ])
-        alert.accessoryView = container
+        alert.accessoryView = stack
 
         guard alert.runModal() == .alertFirstButtonReturn else { return nil }
 
