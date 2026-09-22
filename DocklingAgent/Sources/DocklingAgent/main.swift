@@ -17,7 +17,12 @@ func argValue(_ flag: String) -> String? {
 }
 
 if arguments.contains("--install") {
-    Installer.run()
+    do {
+        try Installer.run()
+    } catch {
+        fputs("error: \(error)\n", stderr)
+        exit(1)
+    }
 } else if arguments.contains("--uninstall") {
     Installer.uninstall()
 } else if let sessionID = argValue("--session"), let portString = argValue("--port"), let port = UInt16(portString) {

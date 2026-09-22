@@ -57,18 +57,31 @@ enum Installer {
         Bundle.main.bundlePath.hasSuffix(".app") && Bundle.main.infoDictionary != nil
     }
 
-    static func run() {
+    /// Thrown instead of calling exit() directly on failure — `run()` is
+    /// called both as a standalone CLI process (`--install`, where exiting
+    /// on error is fine) and as a plain function call from inside
+    /// FirstRunApp's own live GUI process (where it is NOT: an abrupt
+    /// exit() bypasses NSApplication's normal shutdown, and macOS's crash
+    /// reporter treats that as the app having "quit unexpectedly" — a
+    /// misleading, scary dialog for what's really just a clean, expected
+    /// error). Callers decide what to do with it: main.swift prints and
+    /// exits, FirstRunApp shows it as a normal alert via showError().
+    struct InstallError: Error, CustomStringConvertible {
+        let description: String
+    }
+
+    static func run() throws {
         let token = DocklingSecret.load()
         print("Using Dockling secret at \(DocklingSecret.path)")
 
         let fileManager = FileManager.default
-        installHookScript(fileManager: fileManager)
-        installResources(fileManager: fileManager)
-        installBinary(fileManager: fileManager)
-        mergeHooks(token: token, fileManager: fileManager)
+        try installHookScript(fileManager: fileManager)
+        try installResources(fileManager: fileManager)
+        try installBinary(fileManager: fileManager)
+        try mergeHooks(token: token, fileManager: fileManager)
     }
 
-    private static func installHookScript(fileManager: FileManager) {
+    private static func installHookScript(fileManager: FileManager) throws {
         let dockletHooksDir = ((NSHomeDirectory() as NSString).appendingPathComponent(".dockling") as NSString)
             .appendingPathComponent("hooks")
         let installedScriptPath = (dockletHooksDir as NSString).appendingPathComponent("report_session_start.sh")
@@ -77,8 +90,7 @@ enum Installer {
             try reportSessionStartScript.write(toFile: installedScriptPath, atomically: true, encoding: .utf8)
             try fileManager.setAttributes([.posixPermissions: 0o755], ofItemAtPath: installedScriptPath)
         } catch {
-            fputs("error: could not install \(installedScriptPath): \(error)\n", stderr)
-            exit(1)
+            throw InstallError(description: "could not install \(installedScriptPath): \(error)")
         }
     }
 
@@ -93,7 +105,7 @@ enum Installer {
     /// single one. ~/.dockling isn't inside any TCC-protected folder, so
     /// this makes the prompt structurally impossible regardless of where
     /// the binary sits.
-    private static func installResources(fileManager: FileManager) {
+    private static func installResources(fileManager: FileManager) throws {
         // Derived via the exact same lookup DockIconController/SoundPlayer
         // already use successfully (`subdirectory: "Resources/<color>"`),
         // then walked up out of "yellow" and "Resources" — more reliable
@@ -101,8 +113,7 @@ enum Installer {
         // that subdirectory convention, which isn't the same for every
         // Package.swift resource-bundling configuration.
         guard let oneKnownAsset = Bundle.module.url(forResource: "idle", withExtension: "png", subdirectory: "Resources/yellow") else {
-            fputs("error: could not locate bundled icon/sound resources\n", stderr)
-            exit(1)
+            throw InstallError(description: "could not locate bundled icon/sound resources")
         }
         let sourceDir = oneKnownAsset.deletingLastPathComponent().deletingLastPathComponent()
         let destDir = ((NSHomeDirectory() as NSString).appendingPathComponent(".dockling") as NSString)
@@ -114,23 +125,22 @@ enum Installer {
             }
             try fileManager.copyItem(atPath: sourceDir.path, toPath: destDir)
         } catch {
-            fputs("error: could not install icon resources \(sourceDir.path) -> \(destDir): \(error)\n", stderr)
-            exit(1)
+            throw InstallError(description: "could not install icon resources \(sourceDir.path) -> \(destDir): \(error)")
         }
     }
 
-    private static func installBinary(fileManager: FileManager) {
+    private static func installBinary(fileManager: FileManager) throws {
         if isRealAppBundle {
-            installAppBundle(fileManager: fileManager)
+            try installAppBundle(fileManager: fileManager)
         } else {
-            installBareBinary(fileManager: fileManager)
+            try installBareBinary(fileManager: fileManager)
         }
     }
 
     /// See installedBinaryPath's doc comment — the whole bundle has to be
     /// copied, not just its executable, so the Info.plist a bundle main
     /// executable's own signature is bound to stays right next to it.
-    private static func installAppBundle(fileManager: FileManager) {
+    private static func installAppBundle(fileManager: FileManager) throws {
         let bundlePath = Bundle.main.bundlePath
         do {
             try fileManager.createDirectory(atPath: (installedAppBundlePath as NSString).deletingLastPathComponent, withIntermediateDirectories: true)
@@ -149,15 +159,13 @@ enum Installer {
             try? clearQuarantine.run()
             clearQuarantine.waitUntilExit()
         } catch {
-            fputs("error: could not install app bundle \(bundlePath) -> \(installedAppBundlePath): \(error)\n", stderr)
-            exit(1)
+            throw InstallError(description: "could not install app bundle \(bundlePath) -> \(installedAppBundlePath): \(error)")
         }
     }
 
-    private static func installBareBinary(fileManager: FileManager) {
+    private static func installBareBinary(fileManager: FileManager) throws {
         guard let runningPath = Bundle.main.executablePath else {
-            fputs("error: could not resolve own executable path\n", stderr)
-            exit(1)
+            throw InstallError(description: "could not resolve own executable path")
         }
         let installedDir = (installedBinaryPath as NSString).deletingLastPathComponent
         do {
@@ -168,12 +176,11 @@ enum Installer {
             try fileManager.copyItem(atPath: runningPath, toPath: installedBinaryPath)
             try fileManager.setAttributes([.posixPermissions: 0o755], ofItemAtPath: installedBinaryPath)
         } catch {
-            fputs("error: could not install binary \(runningPath) -> \(installedBinaryPath): \(error)\n", stderr)
-            exit(1)
+            throw InstallError(description: "could not install binary \(runningPath) -> \(installedBinaryPath): \(error)")
         }
     }
 
-    private static func mergeHooks(token: String, fileManager: FileManager) {
+    private static func mergeHooks(token: String, fileManager: FileManager) throws {
         let installedScriptPath = (((NSHomeDirectory() as NSString).appendingPathComponent(".dockling") as NSString)
             .appendingPathComponent("hooks") as NSString).appendingPathComponent("report_session_start.sh")
         let claudeDir = (NSHomeDirectory() as NSString).appendingPathComponent(".claude")
@@ -207,8 +214,7 @@ enum Installer {
         settings["hooks"] = hooks
 
         guard let output = try? JSONSerialization.data(withJSONObject: settings, options: [.prettyPrinted, .sortedKeys]) else {
-            fputs("error: could not serialize merged settings.json\n", stderr)
-            exit(1)
+            throw InstallError(description: "could not serialize merged settings.json")
         }
         do {
             try output.write(to: URL(fileURLWithPath: settingsPath))
@@ -218,8 +224,7 @@ enum Installer {
             // token is just as usable read out of here.
             try fileManager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: settingsPath)
         } catch {
-            fputs("error: could not write \(settingsPath): \(error)\n", stderr)
-            exit(1)
+            throw InstallError(description: "could not write \(settingsPath): \(error)")
         }
 
         print("Dockling hooks installed into \(settingsPath) — this now applies to every Claude Code session on this machine, not just this repo.")

@@ -82,7 +82,12 @@ final class FirstRunDelegate: NSObject, NSApplicationDelegate {
         }
         config.save()
 
-        Installer.run()
+        do {
+            try Installer.run()
+        } catch {
+            showError("Setup failed: \(error)")
+            return
+        }
         do {
             try LaunchdRegistration.install()
         } catch {
