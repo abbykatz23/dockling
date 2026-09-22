@@ -131,11 +131,11 @@ enum Installer {
             newGroup: ["hooks": [["type": "command", "command": installedScriptPath]]]
         )
 
-        let hookURL = "http://127.0.0.1:\(hookPort)/hook?token=\(token)"
+        let hookURL = "http://127.0.0.1:\(hookPort)\(hookPath)?token=\(token)"
         for event in ["PreToolUse", "PostToolUseFailure", "TaskCompleted", "Notification", "Stop", "StopFailure", "SessionEnd", "UserPromptSubmit", "PreCompact"] {
             hooks[event] = mergedGroups(
                 existing: hooks[event],
-                isDocklingsOwn: { group in matches(group: group, key: "url", contains: "127.0.0.1:\(hookPort)/hook") },
+                isDocklingsOwn: { group in matches(group: group, key: "url", contains: "127.0.0.1:\(hookPort)\(hookPath)") },
                 newGroup: ["hooks": [["type": "http", "url": hookURL]]]
             )
         }
@@ -167,12 +167,17 @@ enum Installer {
     /// things), then appends `newGroup`. Everything else — other tools'
     /// hooks for this event, or any other event entirely — is untouched.
     private static func mergedGroups(existing: Any?, isDocklingsOwn: ([String: Any]) -> Bool, newGroup: [String: Any]) -> [Any] {
+        withoutDocklingsOwn(existing: existing, isDocklingsOwn: isDocklingsOwn) + [newGroup]
+    }
+
+    /// Same filtering `mergedGroups` does, minus the re-append — used by
+    /// `uninstall()`, which wants Dockling's groups gone, not replaced.
+    private static func withoutDocklingsOwn(existing: Any?, isDocklingsOwn: ([String: Any]) -> Bool) -> [Any] {
         let groups = (existing as? [Any]) ?? []
-        let kept = groups.filter { group in
+        return groups.filter { group in
             guard let group = group as? [String: Any] else { return true }
             return !isDocklingsOwn(group)
         }
-        return kept + [newGroup]
     }
 
     private static func matches(group: [String: Any], key: String, contains substring: String) -> Bool {
@@ -203,10 +208,80 @@ enum Installer {
     # urlencode dependency for it.
     PANE_ENCODED=$(printf '%s' "${TMUX_PANE:-}" | sed 's/%/%25/g')
 
-    curl -s -m 2 -X POST "http://127.0.0.1:\#(hookPort)/hook?token=${TOKEN}&tmux_pane=${PANE_ENCODED}" \
+    curl -s -m 2 -X POST "http://127.0.0.1:\#(hookPort)\#(hookPath)?token=${TOKEN}&tmux_pane=${PANE_ENCODED}" \
       -H 'Content-Type: application/json' \
       -d "$INPUT" > /dev/null || true
 
     exit 0
     """#
+
+    /// `DocklingAgent --uninstall`: the inverse of `run()`. Removes exactly
+    /// what `run()` + LaunchdRegistration.install() set up — Dockling's own
+    /// hook groups from ~/.claude/settings.json (every other tool's hooks,
+    /// and the user's own, are left exactly as found, same guarantee `run()`
+    /// gives), the launchd registration, every currently-running Dockling
+    /// process (the dispatcher, and any live session/baby duck — these
+    /// aren't launchd children, so bootout alone won't touch them), and
+    /// finally ~/.dockling itself.
+    static func uninstall() {
+        let fileManager = FileManager.default
+        removeHooks(fileManager: fileManager)
+        LaunchdRegistration.uninstall()
+        stopRunningProcesses()
+
+        let docklingDir = (NSHomeDirectory() as NSString).appendingPathComponent(".dockling")
+        try? fileManager.removeItem(atPath: docklingDir)
+
+        print("Dockling has been uninstalled: hooks removed from ~/.claude/settings.json, background process stopped, ~/.dockling removed.")
+    }
+
+    private static func removeHooks(fileManager: FileManager) {
+        let claudeDir = (NSHomeDirectory() as NSString).appendingPathComponent(".claude")
+        let settingsPath = (claudeDir as NSString).appendingPathComponent("settings.json")
+        guard let data = fileManager.contents(atPath: settingsPath),
+              var settings = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              var hooks = settings["hooks"] as? [String: Any] else {
+            return // nothing installed to remove
+        }
+
+        hooks["SessionStart"] = withoutDocklingsOwn(
+            existing: hooks["SessionStart"],
+            isDocklingsOwn: { group in matches(group: group, key: "command", contains: "report_session_start.sh") }
+        )
+        for event in ["PreToolUse", "PostToolUseFailure", "TaskCompleted", "Notification", "Stop", "StopFailure", "SessionEnd", "UserPromptSubmit", "PreCompact"] {
+            hooks[event] = withoutDocklingsOwn(
+                existing: hooks[event],
+                isDocklingsOwn: { group in matches(group: group, key: "url", contains: "127.0.0.1:\(hookPort)\(hookPath)") }
+            )
+        }
+        settings["hooks"] = hooks
+
+        guard let output = try? JSONSerialization.data(withJSONObject: settings, options: [.prettyPrinted, .sortedKeys]) else { return }
+        try? output.write(to: URL(fileURLWithPath: settingsPath))
+    }
+
+    /// Every Dockling-spawned process (dispatcher, mama session children,
+    /// baby duck children) runs the same binary under the same process name
+    /// regardless of which path it was launched through (installed binary
+    /// for the dispatcher, a synthesized per-name .app bundle symlink for
+    /// everyone else — see ChildProcessLauncher), so matching by name alone
+    /// catches all of them in one sweep. Excludes this process's own pid —
+    /// this code itself runs inside a "DocklingAgent" process (whether
+    /// invoked via --uninstall or from FirstRunApp's own GUI), and killing
+    /// itself mid-uninstall would cut this function off before it finishes.
+    private static func stopRunningProcesses() {
+        let myPid = ProcessInfo.processInfo.processIdentifier
+        let pgrep = Process()
+        pgrep.executableURL = URL(fileURLWithPath: "/usr/bin/pgrep")
+        pgrep.arguments = ["-x", "DocklingAgent"]
+        let pipe = Pipe()
+        pgrep.standardOutput = pipe
+        guard (try? pgrep.run()) != nil else { return }
+        pgrep.waitUntilExit()
+        let output = String(data: pipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+        for line in output.split(separator: "\n") {
+            guard let pid = Int32(line), pid != myPid else { continue }
+            kill(pid, SIGTERM)
+        }
+    }
 }

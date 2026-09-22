@@ -80,6 +80,17 @@ enum LaunchdRegistration {
         throw lastError ?? NSError(domain: "Dockling", code: 1, userInfo: [NSLocalizedDescriptionKey: "launchctl bootstrap failed"])
     }
 
+    /// The inverse of install() — stops the agent and removes its plist, so
+    /// it no longer starts at login. Both steps are best-effort (matching
+    /// bootout's own "ignore failure" precedent in install() above): if
+    /// nothing's registered, there's nothing to undo, and that's not an
+    /// error either.
+    static func uninstall() {
+        let uid = getuid()
+        _ = try? run("/bin/launchctl", ["bootout", "gui/\(uid)/\(label)"])
+        try? FileManager.default.removeItem(atPath: plistPath)
+    }
+
     @discardableResult
     private static func run(_ path: String, _ args: [String]) throws -> String {
         let process = Process()

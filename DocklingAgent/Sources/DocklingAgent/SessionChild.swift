@@ -76,7 +76,7 @@ final class SessionChildDelegate: NSObject, NSApplicationDelegate {
     /// reply panel while actually awaiting input — otherwise a click just
     /// activates the (windowless) app, same as any other Dock icon.
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
-        if tmuxPane == nil, let cwd = lastCwd {
+        if dockingConfig.focusVSCodeOnClick, tmuxPane == nil, let cwd = lastCwd {
             hookForwarder.forward(rawJSON: ["hook_event_name": "FocusVSCodeWindow", "session_id": sessionID, "cwd": cwd], to: hookPort, attemptsLeft: 1)
         }
 

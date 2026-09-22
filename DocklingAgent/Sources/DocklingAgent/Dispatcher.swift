@@ -127,6 +127,7 @@ final class Dispatcher {
         // dispatcher is the one stable process, so this is a one-time grant
         // instead of one per project.
         if event.name == "FocusVSCodeWindow", let cwd = rawJSON["cwd"] as? String {
+            guard dockingConfig.focusVSCodeOnClick else { return }
             WindowFocus.focusVSCodeWindow(forCwd: cwd)
             return
         }
@@ -250,7 +251,9 @@ final class Dispatcher {
 }
 
 func runDispatcher(port: UInt16) -> Never {
-    WindowFocus.requestPermissionIfNeeded()
+    if dockingConfig.focusVSCodeOnClick {
+        WindowFocus.requestPermissionIfNeeded()
+    }
     UpdateChecker.startPeriodicCheck()
 
     let dispatcher = Dispatcher()

@@ -1,6 +1,12 @@
 import Foundation
 
 let hookPort: UInt16 = 8765
+// A distinctive, Dockling-specific path (not just "/hook") — HookServer
+// itself ignores the request path entirely, so this exists purely so
+// Installer.mergeHooks's "is this hook group mine?" substring match in the
+// user's shared ~/.claude/settings.json can't coincidentally collide with
+// some other local tool that also happens to bind 127.0.0.1:8765.
+let hookPath = "/dockling-hook"
 let sharedSecret = DocklingSecret.load()
 let dockingConfig = DocklingConfig.load()
 
@@ -12,6 +18,8 @@ func argValue(_ flag: String) -> String? {
 
 if arguments.contains("--install") {
     Installer.run()
+} else if arguments.contains("--uninstall") {
+    Installer.uninstall()
 } else if let sessionID = argValue("--session"), let portString = argValue("--port"), let port = UInt16(portString) {
     let color = argValue("--color") ?? "yellow"
     let name = argValue("--name") ?? "DocklingAgent"
