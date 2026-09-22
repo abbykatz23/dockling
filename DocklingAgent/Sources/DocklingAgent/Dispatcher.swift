@@ -102,8 +102,21 @@ final class Dispatcher {
         // find her old (now-dead) pid, conclude she'd crashed, and spawn a
         // completely fresh replacement that's lost track of her babies.
         if event.name == "SelfRelaunched", let newPid = rawJSON["new_pid"] as? Int {
+            let oldPid = sessions[sessionID]?.pid
             sessions[sessionID]?.pid = Int32(newPid)
             persistRegistry()
+            // The old instance was asked to NSApp.terminate() as part of the
+            // relaunch, but nothing confirms it actually did — and once her
+            // pid is overwritten above, this is the only moment anything
+            // could still reach her to check. Without this, an old instance
+            // that failed to exit (observed in practice) becomes a
+            // permanent orphan: frozen mid-pose, invisible to every future
+            // sweep, since nothing tracks her by that pid again.
+            if let oldPid, oldPid != Int32(newPid) {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) {
+                    if SessionRegistry.isAlive(pid: oldPid) { kill(oldPid, SIGTERM) }
+                }
+            }
             return
         }
 

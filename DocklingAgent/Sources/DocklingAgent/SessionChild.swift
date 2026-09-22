@@ -129,7 +129,22 @@ final class SessionChildDelegate: NSObject, NSApplicationDelegate {
             // relaunch (see relaunchFamily()) — update my record of her
             // rather than forwarding this on, so a later SubagentHandback or
             // SessionEnd sweep signals the right (current) pid.
+            let oldPid = babies[agentID]?.pid
             babies[agentID]?.pid = Int32(newPid)
+            // She was asked to NSApp.terminate() as part of the relaunch,
+            // but nothing confirms she actually did — and once her pid is
+            // overwritten above, this is the only moment anything could
+            // still reach her to check. Without this, an old instance that
+            // failed to exit (observed in practice) becomes a permanent
+            // orphan: frozen mid-pose, invisible to every future sweep,
+            // since nothing tracks her by that pid again. Mirrors the same
+            // grace-then-force-kill the dispatcher uses for its own
+            // SelfRelaunched handling.
+            if let oldPid, oldPid != Int32(newPid) {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) {
+                    if SessionRegistry.isAlive(pid: oldPid) { kill(oldPid, SIGTERM) }
+                }
+            }
             return
         }
 
