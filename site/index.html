@@ -25,6 +25,18 @@
     overflow: hidden;
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
   }
+  /* Everything stays hidden until the duck art has actually finished
+     loading (see the script's "ready" handling) — the <img> box reserves
+     its space via CSS the instant the page parses, well before its pixels
+     have necessarily arrived, so being later in the DOM only guarantees
+     she's on top once she's actually rendered. On a slow connection,
+     without this, there'd be a real window where the reveal text is laid
+     out and paintable but nothing opaque sits over it yet. A plain white
+     screen for that moment is indistinguishable from a normal page load. */
+  body.loading .reveal,
+  body.loading .duck {
+    visibility: hidden;
+  }
 
   /* The duck art keeps its real transparency (no backing shape) — instead,
      .reveal is placed inside the one region of the artwork that's reliably
@@ -84,7 +96,7 @@
   .duck.hovering { scale: 1.06; }
 </style>
 </head>
-<body>
+<body class="loading">
 
 <div class="reveal" id="reveal">
   <p>Curious?</p>
@@ -121,6 +133,19 @@
   window.addEventListener("resize", function () {
     if (!dragging) centerDuck();
   });
+
+  // Keeps the whole page hidden (see body.loading in the CSS) until the
+  // duck art has actually rendered, not just until her <img> box exists —
+  // reveals on error too, rather than risking a page that stays blank
+  // forever if the asset genuinely fails to load.
+  function revealPage() {
+    document.body.classList.remove("loading");
+  }
+  if (duck.complete) revealPage();
+  else {
+    duck.addEventListener("load", revealPage);
+    duck.addEventListener("error", revealPage);
+  }
 
   // Alpha hit-testing: the <img> element's box is a big square, but the
   // duck drawn inside it is an irregular shape with real transparency
