@@ -3,8 +3,9 @@ import Foundation
 /// User-level feature toggles, read once at process startup (dispatcher and
 /// every session child each load their own copy, same pattern as
 /// DocklingSecret). Missing file, missing keys, or an unparsable file all
-/// fall back to the default (everything on) — there's nothing to set up for
-/// the common case.
+/// fall back to `.default` — there's nothing to set up for the common case.
+/// Everything defaults on except focusVSCodeOnClick (see its own doc
+/// comment for why).
 struct DocklingConfig {
     enum CommitPose: String, Decodable {
         case bride
@@ -18,11 +19,11 @@ struct DocklingConfig {
     // Gates both WindowFocus.requestPermissionIfNeeded() (asked once, at
     // dispatcher startup) and the click-to-focus-VS-Code feature itself —
     // Accessibility is a sensitive-sounding permission with no other use in
-    // Dockling, so this is opt-in via FirstRunApp's customize step rather
-    // than requested unconditionally and unexplained.
+    // Dockling, so this defaults to off (a real opt-in, not just a visible
+    // toggle defaulted on) via FirstRunApp's customize step.
     var focusVSCodeOnClick: Bool
 
-    static let `default` = DocklingConfig(subagentDucks: true, replyPopover: true, commitPose: .random, focusVSCodeOnClick: true)
+    static let `default` = DocklingConfig(subagentDucks: true, replyPopover: true, commitPose: .random, focusVSCodeOnClick: false)
 
     private struct Raw: Decodable {
         let subagentDucks: Bool?
@@ -51,7 +52,7 @@ struct DocklingConfig {
             subagentDucks: raw.subagentDucks ?? true,
             replyPopover: raw.replyPopover ?? true,
             commitPose: raw.commitPose ?? .random,
-            focusVSCodeOnClick: raw.focusVSCodeOnClick ?? true
+            focusVSCodeOnClick: raw.focusVSCodeOnClick ?? false
         )
     }
 

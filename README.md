@@ -25,8 +25,10 @@ See [DOCKLING_SPEC.md](./DOCKLING_SPEC.md) for the full design rationale. This R
 ### Option A: download (no Terminal, no Swift toolchain)
 
 1. Download the latest signed, notarized DMG from [Releases](https://github.com/abbykatz23/dockling/releases), open it, and drag Dockling to Applications.
-2. Double-click Dockling in Applications and click **Install**. This wires Dockling into `~/.claude/settings.json` so *every* Claude Code session on your machine reports its state — not just sessions run from inside a checkout of this repo — and registers it to start automatically at login. Re-running this (double-click again → Reinstall) is always safe.
+2. Double-click Dockling in Applications and click **Install**. You'll be asked to confirm a few settings first (subagent ducks, the reply popover, commit pose, and whether to enable click-to-focus-VS-Code — the last one asks macOS for Accessibility access, so it's opt-in and unchecked by default). Installing wires Dockling into `~/.claude/settings.json` so *every* Claude Code session on your machine reports its state — not just sessions run from inside a checkout of this repo — and registers it to start automatically at login. Re-running this (double-click again → Reinstall) is always safe.
 3. Start or continue any Claude Code session. A duck appears in the Dock once the session's first hook fires (`SessionStart`, or the first tool call in some clients).
+
+To uninstall, double-click Dockling in Applications again and click **Uninstall** — see [Uninstalling](#uninstalling).
 
 ### Option B: from source
 
@@ -52,6 +54,14 @@ See [DOCKLING_SPEC.md](./DOCKLING_SPEC.md) for the full design rationale. This R
 
 3. **Start or continue any Claude Code session.** A duck appears in the Dock once the session's first hook fires (`SessionStart`, or the first tool call in some clients).
 
+   To uninstall:
+
+   ```sh
+   ~/.dockling/bin/DocklingAgent --uninstall
+   ```
+
+   See [Uninstalling](#uninstalling) for exactly what this removes.
+
 ### Reply-from-Dock (optional)
 
 The reply popover only works for a session running in a real terminal wrapped in `tmux` — Claude Code's own hook payload doesn't otherwise expose a way to inject text back into a running session. `shim/claude` is a PATH shim that transparently wraps `claude` in a dedicated tmux session (invisible — status bar off, no behavior change) so this works without you having to remember to run `tmux` yourself:
@@ -62,6 +72,23 @@ export PATH="/path/to/dockling/shim:$PATH"
 ```
 
 This doesn't apply to the dedicated Claude Code panel in VS Code (a webview, not a tmux-reachable pane) — you'll still get a duck and live state for those sessions, just not the reply popover.
+
+## Uninstalling
+
+Either double-click Dockling in Applications and click **Uninstall** (with a confirmation step first), or run:
+
+```sh
+~/.dockling/bin/DocklingAgent --uninstall
+```
+
+Both remove the same things:
+
+- Dockling's own hook entries from `~/.claude/settings.json` — a clean removal, same guarantee as install: any other tool's hooks (or your own, for any event) are left exactly as found.
+- The `launchd` registration, so it no longer starts at login.
+- Every currently-running Dockling process — the dispatcher and any live session/subagent ducks.
+- `~/.dockling` itself, including your saved config, per-project colors, and secret.
+
+This can't be undone — a later reinstall starts from scratch (fresh per-project colors, default config) rather than restoring what was there before.
 
 ## Per-project colors
 
@@ -90,13 +117,15 @@ Create `~/.dockling/config.json` to change any of these (missing keys/file fall 
 {
   "subagent_ducks": false,
   "reply_popover": false,
-  "commit_pose": "bride"
+  "commit_pose": "bride",
+  "focus_vscode_on_click": true
 }
 ```
 
 - `subagent_ducks` (default `true`): when off, subagents don't get their own duck, and their activity has no effect on mama's icon either — it's as if they're invisible. The whole family-relaunch mechanism (see below) also never triggers, since it exists solely to keep babies grouped with mama.
 - `reply_popover` (default `true`): when off, clicking an awaiting-input duck does nothing special (same as clicking any other Dock icon) instead of opening the reply panel. The awaiting-input pose itself still shows — you'd just reply directly in the terminal instead.
 - `commit_pose` (default `"random"`): which formalwear pose shows while a `git commit` is running — `"bride"`, `"groom"`, or `"random"` (picked once per session/subagent process, not re-rolled on every commit).
+- `focus_vscode_on_click` (default `false`): when on, clicking a duck for a session with no tmux pane (most likely the VS Code panel) raises that project's VS Code window. Requires macOS Accessibility access — asked for once, the first time the dispatcher starts with this on. When off (the default), that permission is never requested and the feature never runs. The GUI installer's customize step asks about this explicitly; a from-source install leaves it off unless you set it here.
 
 Read once at process startup (dispatcher and every session child each load their own copy), so a change takes effect on the next restart, not live.
 
