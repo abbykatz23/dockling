@@ -7,7 +7,11 @@ import Foundation
 /// one long-lived process, so this doesn't repeat once per session/subagent
 /// the way something on SessionChild would.
 enum UpdateChecker {
-    private static let repo = "abbykatz23/dockling"
+    static let repo = "abbykatz23/dockling"
+    /// The stable, always-latest release asset name (see notarize_release.sh)
+    /// — never versioned in its filename, so this URL always resolves to
+    /// whatever the newest release is.
+    static let latestDMGURL = URL(string: "https://github.com/\(repo)/releases/latest/download/Dockling.dmg")!
     private static let checkInterval: TimeInterval = 24 * 60 * 60
     private static let urlSession = URLSession(configuration: .ephemeral)
 
@@ -19,9 +23,10 @@ enum UpdateChecker {
     /// the .app bundle, so it has no Info.plist to read at runtime even
     /// though one exists in Dockling.app's Contents/. A from-source dev
     /// build has this at its default of nil, which is exactly when this
-    /// should quietly do nothing rather than notify about an "update" to a
-    /// build that was never versioned in the first place.
-    private static var currentVersion: String? { docklingVersion }
+    /// (and the settings window's own Update button) should quietly stay
+    /// disabled rather than offering an "update" for a build that was never
+    /// versioned in the first place.
+    static var currentVersion: String? { docklingVersion }
 
     static func startPeriodicCheck() {
         guard currentVersion != nil else { return }
@@ -34,6 +39,17 @@ enum UpdateChecker {
         }
         guard let currentVersion else { return }
 
+        fetchLatestVersion { result in
+            guard case .success(let latestVersion) = result, latestVersion > currentVersion else { return }
+            fputs("[dockling] update available: \(currentVersion) -> \(latestVersion)\n", stderr)
+            notifyUpdateAvailable(version: latestVersion)
+        }
+    }
+
+    /// Shared by the periodic background check above and the settings
+    /// window's "Check for Updates" button — both just want "what's the
+    /// newest tag_name on GitHub," they differ only in what they do with it.
+    static func fetchLatestVersion(completion: @escaping (Result<String, Error>) -> Void) {
         var request = URLRequest(url: URL(string: "https://api.github.com/repos/\(repo)/releases/latest")!)
         request.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
         request.timeoutInterval = 10
@@ -42,9 +58,7 @@ enum UpdateChecker {
             guard let data,
                   let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                   let tagName = json["tag_name"] as? String else {
-                if let error {
-                    fputs("[dockling] update check failed: \(error.localizedDescription)\n", stderr)
-                }
+                completion(.failure(error ?? UpdateCheckError(description: "malformed response from GitHub")))
                 return
             }
             // Tags are "v" + the exact same timestamp string baked into
@@ -53,11 +67,15 @@ enum UpdateChecker {
             // fixed-width, zero-padded Y.m.d.HM, same reasoning as an
             // ISO-8601 timestamp sorting correctly as text.
             let latestVersion = tagName.hasPrefix("v") ? String(tagName.dropFirst()) : tagName
-            guard latestVersion > currentVersion else { return }
-
-            fputs("[dockling] update available: \(currentVersion) -> \(latestVersion)\n", stderr)
-            notifyUpdateAvailable(version: latestVersion)
+            completion(.success(latestVersion))
         }.resume()
+    }
+
+    // LocalizedError too — see UpdateInstaller.UpdateError's doc comment for
+    // why CustomStringConvertible alone isn't enough for `.localizedDescription`.
+    struct UpdateCheckError: Error, CustomStringConvertible, LocalizedError {
+        let description: String
+        var errorDescription: String? { description }
     }
 
     /// Shells out to osascript rather than using UNUserNotificationCenter

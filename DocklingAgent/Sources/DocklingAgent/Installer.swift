@@ -53,7 +53,7 @@ enum Installer {
         .appendingPathComponent(".dockling") as NSString)
         .appendingPathComponent("Dockling.app")
 
-    private static var isRealAppBundle: Bool {
+    static var isRealAppBundle: Bool {
         Bundle.main.bundlePath.hasSuffix(".app") && Bundle.main.infoDictionary != nil
     }
 
@@ -178,6 +178,62 @@ enum Installer {
         } catch {
             throw InstallError(description: "could not install binary \(runningPath) -> \(installedBinaryPath): \(error)")
         }
+    }
+
+    /// The name SPM's resource bundler produces for this target — must stay
+    /// in sync with AssetResolver.resourceBundle's own hardcoded copy, since
+    /// both are standing in for the fact that SPM's generated Bundle.module
+    /// accessor doesn't work in a packaged, signed .app (see that file's own
+    /// doc comment for the full story).
+    private static let resourceBundleName = "DocklingAgent_DocklingAgent.bundle"
+
+    /// UpdateInstaller's counterpart to `run()`: installs an already-
+    /// downloaded, already-signature-verified `Dockling.app` (mounted from a
+    /// freshly downloaded release DMG) in place of whatever's currently
+    /// installed, instead of installing a copy of *this* process's own
+    /// running bundle. `run()`'s installResources()/installBinary() read
+    /// from this process's own Bundle.main/AssetResolver.resourceBundle —
+    /// exactly wrong here, since the whole point is picking up code newer
+    /// than whatever's currently running, not re-copying it.
+    static func installDownloadedUpdate(sourceAppPath: String) throws {
+        let fileManager = FileManager.default
+        try installHookScript(fileManager: fileManager)
+
+        let sourceResourceBundle = ((sourceAppPath as NSString)
+            .appendingPathComponent("Contents/Resources") as NSString)
+            .appendingPathComponent(resourceBundleName)
+        guard fileManager.fileExists(atPath: sourceResourceBundle) else {
+            throw InstallError(description: "downloaded app is missing \(resourceBundleName) — malformed or incompatible build")
+        }
+        let destResourcesDir = ((NSHomeDirectory() as NSString).appendingPathComponent(".dockling") as NSString)
+            .appendingPathComponent("resources")
+        do {
+            if fileManager.fileExists(atPath: destResourcesDir) {
+                try fileManager.removeItem(atPath: destResourcesDir)
+            }
+            try fileManager.copyItem(atPath: sourceResourceBundle, toPath: destResourcesDir)
+        } catch {
+            throw InstallError(description: "could not install icon resources \(sourceResourceBundle) -> \(destResourcesDir): \(error)")
+        }
+
+        do {
+            try fileManager.createDirectory(atPath: (installedAppBundlePath as NSString).deletingLastPathComponent, withIntermediateDirectories: true)
+            if fileManager.fileExists(atPath: installedAppBundlePath) {
+                try fileManager.removeItem(atPath: installedAppBundlePath)
+            }
+            try fileManager.copyItem(atPath: sourceAppPath, toPath: installedAppBundlePath)
+            try fileManager.setAttributes([.posixPermissions: 0o755], ofItemAtPath: installedBinaryPath)
+            let clearQuarantine = Process()
+            clearQuarantine.executableURL = URL(fileURLWithPath: "/usr/bin/xattr")
+            clearQuarantine.arguments = ["-cr", installedAppBundlePath]
+            try? clearQuarantine.run()
+            clearQuarantine.waitUntilExit()
+        } catch {
+            throw InstallError(description: "could not install app bundle \(sourceAppPath) -> \(installedAppBundlePath): \(error)")
+        }
+
+        let token = DocklingSecret.load()
+        try mergeHooks(token: token, fileManager: fileManager)
     }
 
     private static func mergeHooks(token: String, fileManager: FileManager) throws {

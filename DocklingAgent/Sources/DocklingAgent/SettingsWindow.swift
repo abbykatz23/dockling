@@ -13,6 +13,12 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
     private var subagentDucksCheckbox: NSButton!
     private var soundEffectsReadyCheckbox: NSButton!
     private var soundEffectsAwaitingInputCheckbox: NSButton!
+    private var updateButton: NSButton!
+    // Set once a check finds a newer release; the button's next click
+    // installs this specific version rather than checking again — nil means
+    // "no known-newer version yet, next click just checks."
+    private var pendingUpdateVersion: String?
+    private var isUpdateInProgress = false
     private let onUninstall: () -> Void
     private let onReinstall: () -> Void
     // Reused across double-clicks rather than a new window each time, so
@@ -108,6 +114,21 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
         documentStack.addArrangedSubview(makeLabel("Changes here save immediately. You can also edit ~/.dockling/config.json directly.", wrapWidth: rowWidth, small: true))
 
         documentStack.addArrangedSubview(makeSeparator(width: rowWidth))
+
+        // Only for a real, versioned release build — a from-source dev
+        // build has nothing meaningful to update *to* via this path (see
+        // UpdateChecker.currentVersion's own doc comment); use `git pull` +
+        // rebuild instead.
+        if let currentVersion = UpdateChecker.currentVersion {
+            documentStack.addArrangedSubview(makeLabel("Update", bold: true))
+            documentStack.addArrangedSubview(makeLabel("Version \(currentVersion)", wrapWidth: rowWidth, small: true))
+            let updateButton = NSButton(title: "Check for Updates", target: self, action: #selector(updateButtonClicked))
+            updateButton.bezelStyle = .rounded
+            updateButton.translatesAutoresizingMaskIntoConstraints = false
+            self.updateButton = updateButton
+            documentStack.addArrangedSubview(updateButton)
+            documentStack.addArrangedSubview(makeSeparator(width: rowWidth))
+        }
 
         documentStack.addArrangedSubview(makeLabel("Duck Key", bold: true))
         for (assetNames, label) in Self.legend {
@@ -279,6 +300,88 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
         config.soundEffectsReady = soundEffectsReadyCheckbox.state == .on
         config.soundEffectsAwaitingInput = soundEffectsAwaitingInputCheckbox.state == .on
         config.save()
+    }
+
+    @objc private func updateButtonClicked() {
+        guard !isUpdateInProgress else { return }
+        if let pendingUpdateVersion {
+            beginInstalling(version: pendingUpdateVersion)
+        } else {
+            checkForUpdates()
+        }
+    }
+
+    private func checkForUpdates() {
+        isUpdateInProgress = true
+        updateButton.isEnabled = false
+        updateButton.title = "Checking…"
+        UpdateChecker.fetchLatestVersion { [weak self] result in
+            DispatchQueue.main.async {
+                guard let self else { return }
+                self.isUpdateInProgress = false
+                self.updateButton.isEnabled = true
+                switch result {
+                case .failure(let error):
+                    self.updateButton.title = "Check for Updates"
+                    self.showAlert("Couldn't check for updates", error.localizedDescription)
+                case .success(let latest):
+                    guard let current = UpdateChecker.currentVersion, latest > current else {
+                        self.updateButton.title = "Check for Updates"
+                        self.showAlert("You're up to date", "Dockling is already on the latest version.")
+                        return
+                    }
+                    self.pendingUpdateVersion = latest
+                    self.updateButton.title = "Update to \(latest)"
+                }
+            }
+        }
+    }
+
+    private func beginInstalling(version: String) {
+        isUpdateInProgress = true
+        updateButton.isEnabled = false
+        UpdateInstaller.run(progress: { [weak self] status in
+            self?.updateButton.title = status
+        }, completion: { [weak self] result in
+            guard let self else { return }
+            self.isUpdateInProgress = false
+            switch result {
+            case .failure(let error):
+                self.updateButton.isEnabled = true
+                self.pendingUpdateVersion = version
+                self.updateButton.title = "Update to \(version)"
+                self.showAlert("Update failed", error.localizedDescription)
+            case .success(let installedAppPath):
+                self.pendingUpdateVersion = nil
+                self.updateButton.isEnabled = true
+                self.updateButton.title = "Check for Updates"
+                self.offerRelaunch(appPath: installedAppPath, version: version)
+            }
+        })
+    }
+
+    /// The background dispatcher (and every duck it owns) is already
+    /// running the new version at this point — LaunchdRegistration.install()
+    /// already bootstrapped it — this is purely about the currently open
+    /// settings window itself, which is still running whatever UI code this
+    /// process originally launched with.
+    private func offerRelaunch(appPath: String, version: String) {
+        let alert = NSAlert()
+        alert.messageText = "Updated to \(version)"
+        alert.informativeText = "Your ducks are already running the new version. Relaunch Dockling now to see the latest settings window too?"
+        alert.addButton(withTitle: "Relaunch Now")
+        alert.addButton(withTitle: "Later")
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        NSWorkspace.shared.open(URL(fileURLWithPath: appPath))
+        NSApp.terminate(nil)
+    }
+
+    private func showAlert(_ title: String, _ message: String) {
+        let alert = NSAlert()
+        alert.messageText = title
+        alert.informativeText = message
+        alert.addButton(withTitle: "OK")
+        alert.runModal()
     }
 
     @objc private func uninstallClicked() {

@@ -77,6 +77,16 @@ Both remove the same things:
 
 This can't be undone — a later reinstall starts from scratch (fresh per-project colors, default config) rather than restoring what was there before.
 
+## Updating
+
+Open Dockling (in Applications) and use the **Check for Updates** button in the settings window — no need to download a new DMG or drag anything to Applications by hand:
+
+1. Click **Check for Updates**. If a newer release exists, the button changes to **Update to &lt;version&gt;**.
+2. Click it again to download, verify, and install that release. The background dispatcher (and every live duck) is already running the new version by the time this finishes — nothing further needed for that part.
+3. You'll be offered a **Relaunch Now** so the settings window itself (and Dockling.app in Applications) picks up the new version too; **Later** is fine if you just want the background update, but the window stays on whatever it started this session with until the app's next full relaunch.
+
+This checks `github.com/abbykatz23/dockling`'s latest release, verifies it's signed and notarized (the same check Gatekeeper itself would do) and signed by the same developer as the copy you already have installed, before installing it — never an arbitrary/unverified download. Not available for a from-source build (nothing to update *to* via this path — use `git pull` + rebuild instead).
+
 ## Per-project colors
 
 - First session in a project: a color is picked at random, avoiding colors already in use by another currently-active session, then persisted to `~/.dockling/projects.json` keyed by the project's absolute path.
