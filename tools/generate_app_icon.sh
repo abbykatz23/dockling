@@ -39,6 +39,25 @@ resized = square.resize((content_size, content_size), Image.LANCZOS)
 canvas = Image.new("RGBA", (canvas_size, canvas_size), (0, 0, 0, 0))
 offset = (canvas_size - content_size) // 2
 canvas.paste(resized, (offset, offset), resized)
+
+# The source images this has been fed so far each came with a faint,
+# near-white halo baked in behind the bezel's rounded corners (confirmed
+# directly: a solid light-gray fill, distinct from the bezel/duck colors,
+# visible only in the corner-arc regions) — invisible at full size but
+# reads as an ugly light border around the whole icon once scaled down to
+# actual Dock size. Nothing else in this style of art (a saturated color
+# bezel plus a hand-drawn duck) uses a flat near-white fill, so clearing
+# any opaque, low-saturation, bright pixel is safe and specific to that
+# halo rather than incidentally erasing real art.
+px = canvas.load()
+for y in range(canvas_size):
+    for x in range(canvas_size):
+        r, g, b, a = px[x, y]
+        if a == 0:
+            continue
+        if max(r, g, b) - min(r, g, b) < 18 and min(r, g, b) > 170:
+            px[x, y] = (0, 0, 0, 0)
+
 canvas.save(sys.argv[2])
 PYEOF
 

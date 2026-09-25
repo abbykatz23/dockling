@@ -45,7 +45,7 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
         (["pulling"], "Pulling"),
         (["pushing"], "Pushing"),
         (["testing"], "Running tests"),
-        (["compressing"], "Compressing files"),
+        (["compressing"], "Compressing or compacting"),
         (["sleepy"], "Idle 5+ minutes"),
         (["butt"], "Session ending"),
     ]
@@ -105,10 +105,10 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
         let subagentDucksCheckbox = makeCheckbox("Show a baby duck for each subagent", isOn: config.subagentDucks, rowWidth: rowWidth)
         self.subagentDucksCheckbox = subagentDucksCheckbox
         documentStack.addArrangedSubview(subagentDucksCheckbox)
-        let soundEffectsReadyCheckbox = makeCheckbox("Play a sound when ready for your next message", isOn: config.soundEffectsReady, rowWidth: rowWidth)
+        let soundEffectsReadyCheckbox = makeCheckbox("Quack when done with work", isOn: config.soundEffectsReady, rowWidth: rowWidth)
         self.soundEffectsReadyCheckbox = soundEffectsReadyCheckbox
         documentStack.addArrangedSubview(soundEffectsReadyCheckbox)
-        let soundEffectsAwaitingInputCheckbox = makeCheckbox("Play a sound when waiting on you", isOn: config.soundEffectsAwaitingInput, rowWidth: rowWidth)
+        let soundEffectsAwaitingInputCheckbox = makeCheckbox("Quack when waiting on your answer", isOn: config.soundEffectsAwaitingInput, rowWidth: rowWidth)
         self.soundEffectsAwaitingInputCheckbox = soundEffectsAwaitingInputCheckbox
         documentStack.addArrangedSubview(soundEffectsAwaitingInputCheckbox)
         documentStack.addArrangedSubview(makeLabel("Changes here save immediately. You can also edit ~/.dockling/config.json directly.", wrapWidth: rowWidth, small: true))
@@ -139,6 +139,13 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
         scrollView.translatesAutoresizingMaskIntoConstraints = false
         scrollView.hasVerticalScroller = true
         scrollView.drawsBackground = false
+        // A plain NSClipView isn't flipped, so a scroll view's initial
+        // (unscrolled) position shows y=0 — the *bottom* of the document
+        // view in that coordinate system — instead of the top. Without
+        // this, the window opened pre-scrolled all the way down to the Duck
+        // Key, with Settings (the actual top of the content) scrolled out
+        // of view above it.
+        scrollView.contentView = FlippedClipView()
         scrollView.documentView = documentStack
 
         let uninstallButton = NSButton(title: "Uninstall…", target: self, action: #selector(uninstallClicked))
@@ -440,4 +447,10 @@ private final class LegendImageView: NSImageView {
     required init?(coder: NSCoder) {
         fatalError("init(coder:) not supported")
     }
+}
+
+// See its one use in buildContent(): makes the settings scroll view open
+// showing the top of its content (Settings) instead of the bottom (Duck Key).
+private final class FlippedClipView: NSClipView {
+    override var isFlipped: Bool { true }
 }
