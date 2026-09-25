@@ -102,11 +102,13 @@ Create `~/.dockling/config.json` to change any of these (missing keys/file fall 
 
 ```json
 {
-  "subagent_ducks": false
+  "subagent_ducks": false,
+  "sound_effects": false
 }
 ```
 
 - `subagent_ducks` (default `true`): when off, subagents don't get their own duck, and their activity has no effect on mama's icon either — it's as if they're invisible. The whole family-relaunch mechanism (see below) also never triggers, since it exists solely to keep babies grouped with mama.
+- `sound_effects` (default `true`): when off, the ready/awaiting-input sound cues never play. Can also be toggled from the settings window ("Play sound effects").
 
 Read once at process startup (dispatcher and every session child each load their own copy), so a change takes effect on the next restart, not live.
 
