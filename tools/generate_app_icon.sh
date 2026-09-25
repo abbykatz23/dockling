@@ -15,30 +15,42 @@ PADDED="$OUT_DIR/AppIcon-source-1024.png"
 rm -rf "$ICONSET"
 mkdir -p "$ICONSET"
 
-# Scales the source down to ~97% of a 1024x1024 canvas, centered on
-# transparent padding, before generating any icon size — without this, the
-# bezel's border touches the canvas edge with zero margin (confirmed: 0px
-# measured directly), which downstream compositing/anti-aliasing (in
-# particular, the small icon rendering inside the custom DMG's "drag to
-# Applications" window) clips straight into, making the border look cut
-# off at the edges rather than framing the icon. Deliberately subtle (a
-# first attempt at 90.6% was visibly, clearly over-padded at small sizes,
-# confirmed directly) — this only needs to stop literal edge-touching, not
-# visibly shrink the icon.
+# Fits the source into Apple's exact macOS app-icon squircle tile — an
+# 832x832 tile offset at (96, 88) within the 1024x1024 canvas, 185px corner
+# radius (confirmed against a maintained open-source implementation of this
+# exact spec, cross-checked against multiple independent write-ups of
+# Apple's macOS 26+ icon geometry) — rather than an arbitrary center-padded
+# scale-down. Starting with macOS 26 (Tahoe), the system actively detects
+# icons whose opaque content extends past its own version of this mask and
+# draws its own gray backing plate behind them to compensate; matching the
+# real geometry exactly, corner radius included, is what stops that plate
+# from appearing at all, not just centering/shrinking the art.
 python3 - "$SRC" "$PADDED" <<'PYEOF'
 import sys
-from PIL import Image
+from PIL import Image, ImageDraw
+
+CANVAS = 1024
+TILE = 832
+TILE_X = 96
+TILE_Y = 88
+RADIUS = 185
 
 src = Image.open(sys.argv[1]).convert("RGBA")
-canvas_size = 1024
-square = src.resize((canvas_size, canvas_size), Image.LANCZOS)
+content = src.resize((TILE, TILE), Image.LANCZOS)
 
-content_size = round(canvas_size * 0.97)
-resized = square.resize((content_size, content_size), Image.LANCZOS)
+canvas = Image.new("RGBA", (CANVAS, CANVAS), (0, 0, 0, 0))
+canvas.paste(content, (TILE_X, TILE_Y), content)
 
-canvas = Image.new("RGBA", (canvas_size, canvas_size), (0, 0, 0, 0))
-offset = (canvas_size - content_size) // 2
-canvas.paste(resized, (offset, offset), resized)
+# Hard-clips to Apple's exact tile shape on top of whatever the source
+# art's own edge/corner already looks like — this is what guarantees the
+# final shape never extends past macOS's own mask, regardless of how the
+# source was drawn.
+mask = Image.new("L", (CANVAS, CANVAS), 0)
+draw = ImageDraw.Draw(mask)
+draw.rounded_rectangle([TILE_X, TILE_Y, TILE_X + TILE, TILE_Y + TILE], radius=RADIUS, fill=255)
+r, g, b, a = canvas.split()
+a = Image.composite(a, Image.new("L", (CANVAS, CANVAS), 0), mask)
+canvas = Image.merge("RGBA", (r, g, b, a))
 
 # The source images this has been fed so far each came with a faint,
 # near-white halo baked in behind the bezel's rounded corners (confirmed
@@ -50,8 +62,8 @@ canvas.paste(resized, (offset, offset), resized)
 # any opaque, low-saturation, bright pixel is safe and specific to that
 # halo rather than incidentally erasing real art.
 px = canvas.load()
-for y in range(canvas_size):
-    for x in range(canvas_size):
+for y in range(CANVAS):
+    for x in range(CANVAS):
         r, g, b, a = px[x, y]
         if a == 0:
             continue

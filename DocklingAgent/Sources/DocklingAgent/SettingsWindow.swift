@@ -379,8 +379,25 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
         alert.addButton(withTitle: "Relaunch Now")
         alert.addButton(withTitle: "Later")
         guard alert.runModal() == .alertFirstButtonReturn else { return }
-        NSWorkspace.shared.open(URL(fileURLWithPath: appPath))
+        // Not NSWorkspace.shared.open(appPath) followed by terminate(): that
+        // asks Launch Services to open the exact bundle path *this process*
+        // is still running from, at the moment it's still alive — Launch
+        // Services sees "Dockling's already running" and just activates
+        // this same (old) instance instead of spawning the freshly-swapped
+        // one, so the "relaunch" was a silent no-op (confirmed happening —
+        // not a hypothetical). A detached helper that waits for this
+        // process to actually exit before opening the app sidesteps that
+        // race entirely — by the time it runs, Launch Services sees no
+        // running instance and launches a genuinely new one.
+        let relauncher = Process()
+        relauncher.executableURL = URL(fileURLWithPath: "/bin/sh")
+        relauncher.arguments = ["-c", "sleep 1; /usr/bin/open \(shellQuoted(appPath))"]
+        try? relauncher.run()
         NSApp.terminate(nil)
+    }
+
+    private func shellQuoted(_ path: String) -> String {
+        "'" + path.replacingOccurrences(of: "'", with: "'\\''") + "'"
     }
 
     private func showAlert(_ title: String, _ message: String) {
