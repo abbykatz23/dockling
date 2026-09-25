@@ -11,7 +11,8 @@ import AppKit
 final class SettingsWindowController: NSWindowController, NSWindowDelegate {
     private var config: DocklingConfig
     private var subagentDucksCheckbox: NSButton!
-    private var soundEffectsCheckbox: NSButton!
+    private var soundEffectsReadyCheckbox: NSButton!
+    private var soundEffectsAwaitingInputCheckbox: NSButton!
     private let onUninstall: () -> Void
     private let onReinstall: () -> Void
     // Reused across double-clicks rather than a new window each time, so
@@ -98,9 +99,12 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
         let subagentDucksCheckbox = makeCheckbox("Show a baby duck for each subagent", isOn: config.subagentDucks, rowWidth: rowWidth)
         self.subagentDucksCheckbox = subagentDucksCheckbox
         documentStack.addArrangedSubview(subagentDucksCheckbox)
-        let soundEffectsCheckbox = makeCheckbox("Play sound effects", isOn: config.soundEffects, rowWidth: rowWidth)
-        self.soundEffectsCheckbox = soundEffectsCheckbox
-        documentStack.addArrangedSubview(soundEffectsCheckbox)
+        let soundEffectsReadyCheckbox = makeCheckbox("Play a sound when ready for your next message", isOn: config.soundEffectsReady, rowWidth: rowWidth)
+        self.soundEffectsReadyCheckbox = soundEffectsReadyCheckbox
+        documentStack.addArrangedSubview(soundEffectsReadyCheckbox)
+        let soundEffectsAwaitingInputCheckbox = makeCheckbox("Play a sound when waiting on you", isOn: config.soundEffectsAwaitingInput, rowWidth: rowWidth)
+        self.soundEffectsAwaitingInputCheckbox = soundEffectsAwaitingInputCheckbox
+        documentStack.addArrangedSubview(soundEffectsAwaitingInputCheckbox)
         documentStack.addArrangedSubview(makeLabel("Changes here save immediately. You can also edit ~/.dockling/config.json directly.", wrapWidth: rowWidth, small: true))
 
         documentStack.addArrangedSubview(makeSeparator(width: rowWidth))
@@ -272,7 +276,8 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
 
     @objc private func checkboxChanged(_ sender: NSButton) {
         config.subagentDucks = subagentDucksCheckbox.state == .on
-        config.soundEffects = soundEffectsCheckbox.state == .on
+        config.soundEffectsReady = soundEffectsReadyCheckbox.state == .on
+        config.soundEffectsAwaitingInput = soundEffectsAwaitingInputCheckbox.state == .on
         config.save()
     }
 

@@ -157,7 +157,7 @@ final class SessionChildDelegate: NSObject, NSApplicationDelegate {
             dockIcon.apply(.eureka)
         case "Notification":
             dockIcon.apply(.awaitingInput)
-            if dockingConfig.soundEffects { SoundPlayer.play("input_needed_dockling") }
+            if dockingConfig.soundEffectsAwaitingInput { SoundPlayer.play("input_needed_dockling") }
         case "Stop":
             // TaskCompleted (below) only fires for todo-list-style milestones
             // — genuinely rare — so on its own eureka barely showed up.
@@ -172,7 +172,7 @@ final class SessionChildDelegate: NSObject, NSApplicationDelegate {
             // Played right at Stop, not delayed to match eureka's later
             // auto-revert to idle — "ready for more instructions" is already
             // true the moment Stop fires, whichever pose shows first.
-            if dockingConfig.soundEffects { SoundPlayer.play("ready_dockling") }
+            if dockingConfig.soundEffectsReady { SoundPlayer.play("ready_dockling") }
         case "StopFailure":
             dockIcon.apply(.idle)
             didWorkThisTurn = false

@@ -6,17 +6,24 @@ import Foundation
 /// fall back to `.default` — there's nothing to set up for the common case.
 struct DocklingConfig {
     var subagentDucks: Bool
-    var soundEffects: Bool
+    // Split in two rather than one blanket toggle: the "ready" cue (Stop)
+    // and the "awaiting input" cue (Notification) are different enough in
+    // purpose — one's a passive "done" ping, the other's an "I need you"
+    // alert — that someone may want only one of them.
+    var soundEffectsReady: Bool
+    var soundEffectsAwaitingInput: Bool
 
-    static let `default` = DocklingConfig(subagentDucks: true, soundEffects: true)
+    static let `default` = DocklingConfig(subagentDucks: true, soundEffectsReady: true, soundEffectsAwaitingInput: true)
 
     private struct Raw: Decodable {
         let subagentDucks: Bool?
-        let soundEffects: Bool?
+        let soundEffectsReady: Bool?
+        let soundEffectsAwaitingInput: Bool?
 
         enum CodingKeys: String, CodingKey {
             case subagentDucks = "subagent_ducks"
-            case soundEffects = "sound_effects"
+            case soundEffectsReady = "sound_effects_ready"
+            case soundEffectsAwaitingInput = "sound_effects_awaiting_input"
         }
     }
 
@@ -29,7 +36,11 @@ struct DocklingConfig {
               let raw = try? JSONDecoder().decode(Raw.self, from: data) else {
             return .default
         }
-        return DocklingConfig(subagentDucks: raw.subagentDucks ?? true, soundEffects: raw.soundEffects ?? true)
+        return DocklingConfig(
+            subagentDucks: raw.subagentDucks ?? true,
+            soundEffectsReady: raw.soundEffectsReady ?? true,
+            soundEffectsAwaitingInput: raw.soundEffectsAwaitingInput ?? true
+        )
     }
 
     /// Used by the settings window to persist the user's choices. Always
@@ -42,7 +53,8 @@ struct DocklingConfig {
     func save() {
         let dict: [String: Any] = [
             "subagent_ducks": subagentDucks,
-            "sound_effects": soundEffects,
+            "sound_effects_ready": soundEffectsReady,
+            "sound_effects_awaiting_input": soundEffectsAwaitingInput,
         ]
         guard let data = try? JSONSerialization.data(withJSONObject: dict, options: [.prettyPrinted, .sortedKeys]) else { return }
         let directory = (Self.path as NSString).deletingLastPathComponent
