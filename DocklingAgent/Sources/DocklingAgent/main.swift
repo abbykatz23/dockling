@@ -31,6 +31,12 @@ if arguments.contains("--install") {
     let agentID = argValue("--agent")
     let parentPort = argValue("--parent-port").flatMap(UInt16.init) ?? hookPort
     runSessionChild(sessionID: sessionID, port: port, color: color, name: name, agentID: agentID, parentPort: parentPort)
+} else if arguments.contains("--finish-update"), let sourceAppPath = argValue("--source") {
+    // Spawned by UpdateInstaller.swift, running from the just-downloaded
+    // release itself rather than from whatever process initiated the
+    // update — see FinishUpdate.swift's own doc comment for why that
+    // distinction is the whole point of this flag existing.
+    runFinishUpdate(sourceAppPath: sourceAppPath, targetAppPath: argValue("--target"))
 } else if arguments.contains("--dispatcher") {
     // launchd's own launch of the real, headless, long-running dispatcher —
     // see LaunchdRegistration for why this needs its own flag rather than

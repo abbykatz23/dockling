@@ -71,23 +71,30 @@ enum UpdateInstaller {
             try verifySameSigningTeam(candidateAppPath: sourceApp, knownGoodAppPath: Bundle.main.bundlePath)
         }
 
-        try Installer.installDownloadedUpdate(sourceAppPath: sourceApp)
-        try LaunchdRegistration.install()
+        // The actual install (resource copy, ~/.dockling bundle swap,
+        // hook merge, launchd restart, and replacing this process's own
+        // /Applications bundle) runs inside a fresh process launched
+        // straight from sourceApp — not performed by this code, right here,
+        // in this already-running process. That distinction is deliberate:
+        // this process could be an old window someone left open for days,
+        // still executing whatever install logic existed when *it*
+        // started, regardless of how new the release it just downloaded
+        // is. A bug fixed in the very release being installed can only
+        // actually take effect if the code that performs the install is
+        // re-executed from that release, not carried over from this one.
+        // See FinishUpdate.swift.
+        let targetAppPath = Installer.isRealAppBundle ? Bundle.main.bundlePath : nil
+        try runFinishUpdateProcess(sourceAppPath: sourceApp, targetAppPath: targetAppPath)
+        return targetAppPath ?? sourceApp
+    }
 
-        // Also refresh the on-disk bundle this very process was launched
-        // from (typically /Applications/Dockling.app) — otherwise the next
-        // time someone opens Dockling to reach Settings, they'd still see
-        // whichever UI they originally downloaded, even though the
-        // background dispatcher (just replaced above) has already moved on.
-        // Safe to replace out from under a running process on macOS: this
-        // only rewrites directory entries/file contents, and the already-
-        // running executable stays mapped from its old inode until this
-        // process actually exits.
-        if Installer.isRealAppBundle {
-            try replaceRunningAppBundle(withAppAt: sourceApp)
-            return Bundle.main.bundlePath
+    private static func runFinishUpdateProcess(sourceAppPath: String, targetAppPath: String?) throws {
+        let executablePath = (sourceAppPath as NSString).appendingPathComponent("Contents/MacOS/DocklingAgent")
+        var args = ["--finish-update", "--source", sourceAppPath]
+        if let targetAppPath {
+            args += ["--target", targetAppPath]
         }
-        return sourceApp
+        _ = try run(executablePath, args)
     }
 
     // MARK: - Download
@@ -173,39 +180,6 @@ enum UpdateInstaller {
 
     private static func unmount(_ mountPoint: String) throws {
         _ = try run("/usr/bin/hdiutil", ["detach", mountPoint, "-quiet"])
-    }
-
-    // MARK: - Self-replacement
-
-    /// Swaps `knownGoodAppPath` (this process's own running bundle, e.g.
-    /// /Applications/Dockling.app) for `sourceApp`, preserving the old copy
-    /// as a `.old` sibling until the new one is fully in place — a crash or
-    /// error partway through leaves the original recoverable rather than
-    /// gone, rather than deleting first and copying second.
-    private static func replaceRunningAppBundle(withAppAt sourceApp: String) throws {
-        let fileManager = FileManager.default
-        let bundlePath = Bundle.main.bundlePath
-        let backupPath = bundlePath + ".old"
-
-        if fileManager.fileExists(atPath: backupPath) {
-            try? fileManager.removeItem(atPath: backupPath)
-        }
-        try fileManager.moveItem(atPath: bundlePath, toPath: backupPath)
-
-        do {
-            try fileManager.copyItem(atPath: sourceApp, toPath: bundlePath)
-            try fileManager.setAttributes([.posixPermissions: 0o755], ofItemAtPath: (bundlePath as NSString).appendingPathComponent("Contents/MacOS/DocklingAgent"))
-            let clearQuarantine = Process()
-            clearQuarantine.executableURL = URL(fileURLWithPath: "/usr/bin/xattr")
-            clearQuarantine.arguments = ["-cr", bundlePath]
-            try? clearQuarantine.run()
-            clearQuarantine.waitUntilExit()
-            try? fileManager.removeItem(atPath: backupPath)
-        } catch {
-            try? fileManager.removeItem(atPath: bundlePath)
-            try? fileManager.moveItem(atPath: backupPath, toPath: bundlePath)
-            throw error
-        }
     }
 
     // MARK: - Process helper

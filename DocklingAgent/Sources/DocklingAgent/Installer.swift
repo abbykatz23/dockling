@@ -49,7 +49,7 @@ enum Installer {
             .appendingPathComponent("DocklingAgent")
     }
 
-    private static let installedAppBundlePath = ((NSHomeDirectory() as NSString)
+    static let installedAppBundlePath = ((NSHomeDirectory() as NSString)
         .appendingPathComponent(".dockling") as NSString)
         .appendingPathComponent("Dockling.app")
 
