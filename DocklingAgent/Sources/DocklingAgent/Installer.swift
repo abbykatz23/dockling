@@ -202,8 +202,20 @@ enum Installer {
         let sourceResourceBundle = ((sourceAppPath as NSString)
             .appendingPathComponent("Contents/Resources") as NSString)
             .appendingPathComponent(resourceBundleName)
-        guard fileManager.fileExists(atPath: sourceResourceBundle) else {
-            throw InstallError(description: "downloaded app is missing \(resourceBundleName) — malformed or incompatible build")
+        // The copy source has to be the bundle's own *inner* Resources
+        // folder (matching installResources()'s own walk-up-from-a-known-
+        // asset logic below), not the bundle folder itself — copying the
+        // whole bundle folder here previously nested everything one level
+        // too deep (~/.dockling/resources/Resources/<color>/... instead of
+        // ~/.dockling/resources/<color>/...), which resolveURL never
+        // accounts for. That silently broke every icon/sound lookup for
+        // any session started after an in-app update, only surfacing once
+        // AssetResolver.resourceBundle's own fallback — always broken for a
+        // session child, which runs from a symlink-only synthesized bundle
+        // with no real Resources folder of its own — got hit and fatalError'd.
+        let sourceResourcesInner = (sourceResourceBundle as NSString).appendingPathComponent("Resources")
+        guard fileManager.fileExists(atPath: sourceResourcesInner) else {
+            throw InstallError(description: "downloaded app is missing \(resourceBundleName)/Resources — malformed or incompatible build")
         }
         let destResourcesDir = ((NSHomeDirectory() as NSString).appendingPathComponent(".dockling") as NSString)
             .appendingPathComponent("resources")
@@ -211,9 +223,9 @@ enum Installer {
             if fileManager.fileExists(atPath: destResourcesDir) {
                 try fileManager.removeItem(atPath: destResourcesDir)
             }
-            try fileManager.copyItem(atPath: sourceResourceBundle, toPath: destResourcesDir)
+            try fileManager.copyItem(atPath: sourceResourcesInner, toPath: destResourcesDir)
         } catch {
-            throw InstallError(description: "could not install icon resources \(sourceResourceBundle) -> \(destResourcesDir): \(error)")
+            throw InstallError(description: "could not install icon resources \(sourceResourcesInner) -> \(destResourcesDir): \(error)")
         }
 
         do {
