@@ -103,7 +103,16 @@ enum UpdateInstaller {
         let semaphore = DispatchSemaphore(value: 0)
         var downloadError: Error?
 
-        let task = URLSession(configuration: .ephemeral).downloadTask(with: url) { location, response, error in
+        // Without an explicit resource timeout, a connection that keeps
+        // trickling occasional bytes resets URLSession's default 60-second
+        // per-request inactivity timer forever without ever finishing —
+        // semaphore.wait() below would then block for up to URLSession's
+        // default 7-day resource timeout before any error surfaced, with
+        // the Update button stuck on "Downloading…" the whole time and no
+        // way to cancel. 5 minutes is generous for an ~11MB release DMG.
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.timeoutIntervalForResource = 300
+        let task = URLSession(configuration: configuration).downloadTask(with: url) { location, response, error in
             defer { semaphore.signal() }
             if let error {
                 downloadError = error
@@ -194,10 +203,31 @@ enum UpdateInstaller {
         process.standardOutput = outputPipe
         process.standardError = errorPipe
         try process.run()
-        process.waitUntilExit()
 
-        let outputData = outputPipe.fileHandleForReading.readDataToEndOfFile()
-        let errorData = errorPipe.fileHandleForReading.readDataToEndOfFile()
+        // Drained concurrently with the process still running, not after
+        // waitUntilExit() — reading only afterward is a classic Process/Pipe
+        // deadlock if the child's combined output fills the OS pipe buffer
+        // (~64KB) before it exits: the child then blocks on write() with
+        // nothing reading, and waitUntilExit() blocks right back waiting on
+        // a child that can no longer proceed. hdiutil/spctl/codesign -v
+        // (and the nested --finish-update subprocess, which shells out to
+        // all three itself) can all plausibly produce that much output.
+        var outputData = Data()
+        var errorData = Data()
+        let readGroup = DispatchGroup()
+        readGroup.enter()
+        DispatchQueue.global(qos: .utility).async {
+            outputData = outputPipe.fileHandleForReading.readDataToEndOfFile()
+            readGroup.leave()
+        }
+        readGroup.enter()
+        DispatchQueue.global(qos: .utility).async {
+            errorData = errorPipe.fileHandleForReading.readDataToEndOfFile()
+            readGroup.leave()
+        }
+        process.waitUntilExit()
+        readGroup.wait()
+
         let combined = (String(data: outputData, encoding: .utf8) ?? "") + (String(data: errorData, encoding: .utf8) ?? "")
 
         if process.terminationStatus != 0 {

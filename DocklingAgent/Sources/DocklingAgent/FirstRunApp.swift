@@ -77,19 +77,31 @@ final class FirstRunDelegate: NSObject, NSApplicationDelegate {
     /// live in the settings window this is reached from, so there's nothing
     /// left to ask. For repairing a broken hook entry or launchd
     /// registration without touching saved preferences.
+    ///
+    /// Runs off the main thread: LaunchdRegistration.install()'s bootstrap
+    /// retry loop blocks synchronously (blocking sleeps plus an uncapped
+    /// waitUntilExit per attempt), which previously froze this whole
+    /// button's callback — and with it the entire Settings window, with no
+    /// spinner or way to cancel — for as long as launchctl took to (re)try.
     private func repairInstallation() {
-        do {
-            try Installer.run()
-            try LaunchdRegistration.install()
-        } catch {
-            showError("Reinstall failed: \(error.localizedDescription)", terminate: false)
-            return
+        DispatchQueue.global(qos: .userInitiated).async {
+            do {
+                try Installer.run()
+                try LaunchdRegistration.install()
+            } catch {
+                DispatchQueue.main.async {
+                    self.showError("Reinstall failed: \(error.localizedDescription)", terminate: false)
+                }
+                return
+            }
+            DispatchQueue.main.async {
+                let done = NSAlert()
+                done.messageText = "Hooks reinstalled"
+                done.informativeText = "Dockling's hooks and background process have been refreshed."
+                done.addButton(withTitle: "OK")
+                done.runModal()
+            }
         }
-        let done = NSAlert()
-        done.messageText = "Hooks reinstalled"
-        done.informativeText = "Dockling's hooks and background process have been refreshed."
-        done.addButton(withTitle: "OK")
-        done.runModal()
     }
 
     // No separate "customize your settings" step before this: it used to
@@ -100,20 +112,28 @@ final class FirstRunDelegate: NSObject, NSApplicationDelegate {
     // falls back to .default on a genuinely fresh install), and the
     // settings window that opens right after is where those get changed,
     // same as any other time it's opened.
+    // Runs off the main thread for the same reason repairInstallation()
+    // does — see its own doc comment.
     private func install() {
-        do {
-            try Installer.run()
-        } catch {
-            showError("Setup failed: \(error)")
-            return
+        DispatchQueue.global(qos: .userInitiated).async {
+            do {
+                try Installer.run()
+            } catch {
+                DispatchQueue.main.async { self.showError("Setup failed: \(error)") }
+                return
+            }
+            do {
+                try LaunchdRegistration.install()
+            } catch {
+                DispatchQueue.main.async {
+                    self.showError("Dockling's hooks are set up, but starting it automatically failed: \(error.localizedDescription)")
+                }
+                return
+            }
+            DispatchQueue.main.async {
+                self.openSettingsWindow(welcomeMessage: "You're all set! Start or continue any Claude Code session to see your duck. Here's what each pose means:")
+            }
         }
-        do {
-            try LaunchdRegistration.install()
-        } catch {
-            showError("Dockling's hooks are set up, but starting it automatically failed: \(error.localizedDescription)")
-            return
-        }
-        openSettingsWindow(welcomeMessage: "You're all set! Start or continue any Claude Code session to see your duck. Here's what each pose means:")
     }
 
     private func showError(_ message: String, terminate: Bool = true) {

@@ -86,6 +86,23 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
         NSApp.terminate(nil)
     }
 
+    // windowShouldClose, not just windowWillClose: this one can actually
+    // refuse the close, which matters specifically while an update is
+    // in flight — terminating then, before windowShouldClose existed here,
+    // tore the process down mid-download/mid-mount/mid-finish-update-
+    // subprocess, skipping performUpdate's own deferred cleanup entirely
+    // (leaking a mounted disk image and a temp directory under /tmp) with
+    // no completion feedback ever reaching the user.
+    func windowShouldClose(_ sender: NSWindow) -> Bool {
+        guard isUpdateInProgress else { return true }
+        let alert = NSAlert()
+        alert.messageText = "Update in progress"
+        alert.informativeText = "Dockling is downloading and installing an update. Please wait for it to finish before closing this window."
+        alert.addButton(withTitle: "OK")
+        alert.runModal()
+        return false
+    }
+
     private func buildContent(welcomeMessage: String?) {
         guard let contentView = window?.contentView else { return }
         let rowWidth = Self.windowWidth - 40
@@ -302,10 +319,26 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
         AssetResolver.resolveURL(name: assetName, ext: "png", subdir: "yellow").flatMap(NSImage.init(contentsOf:))
     }
 
+    // Reloads from disk and applies only the one field `sender` represents,
+    // rather than re-serializing all three checkboxes' cached .state (only
+    // ever set once, at window-init time) on top of whatever's on disk now.
+    // The window's own on-screen hint invites editing config.json directly
+    // while it stays open — the old all-three-at-once write silently
+    // reverted any such hand-edit to an *unrelated* field the moment any
+    // single checkbox was toggled, since it never re-read the file first.
     @objc private func checkboxChanged(_ sender: NSButton) {
-        config.subagentDucks = subagentDucksCheckbox.state == .on
-        config.soundEffectsReady = soundEffectsReadyCheckbox.state == .on
-        config.soundEffectsAwaitingInput = soundEffectsAwaitingInputCheckbox.state == .on
+        var freshConfig = DocklingConfig.load()
+        switch sender {
+        case subagentDucksCheckbox:
+            freshConfig.subagentDucks = sender.state == .on
+        case soundEffectsReadyCheckbox:
+            freshConfig.soundEffectsReady = sender.state == .on
+        case soundEffectsAwaitingInputCheckbox:
+            freshConfig.soundEffectsAwaitingInput = sender.state == .on
+        default:
+            break
+        }
+        config = freshConfig
         config.save()
     }
 
@@ -389,10 +422,30 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
         // process to actually exit before opening the app sidesteps that
         // race entirely — by the time it runs, Launch Services sees no
         // running instance and launches a genuinely new one.
+        //
+        // Polls this process's own pid with kill -0 rather than a fixed
+        // `sleep 1` guess: a fixed sleep can still lose the same race if
+        // NSApp.terminate(nil) happens to take longer than a second
+        // (plausible right after the heavy disk I/O this update just did),
+        // in which case Launch Services would still see Dockling running
+        // when `open` fires. Capped at 10s so a termination that somehow
+        // never completes doesn't leave this waiting forever instead of at
+        // least attempting to open.
+        let myPid = ProcessInfo.processInfo.processIdentifier
         let relauncher = Process()
         relauncher.executableURL = URL(fileURLWithPath: "/bin/sh")
-        relauncher.arguments = ["-c", "sleep 1; /usr/bin/open \(shellQuoted(appPath))"]
-        try? relauncher.run()
+        relauncher.arguments = ["-c", "n=0; while kill -0 \(myPid) 2>/dev/null && [ $n -lt 100 ]; do sleep 0.1; n=$((n+1)); done; /usr/bin/open \(shellQuoted(appPath))"]
+        do {
+            try relauncher.run()
+        } catch {
+            // Previously silently swallowed via try?, with NSApp.terminate(nil)
+            // still firing unconditionally right after — leaving the user
+            // with no Dockling window, no relaunch, and nothing telling
+            // them it failed. Bailing out here instead keeps the window
+            // (and the process) alive so they at least see this message.
+            showAlert("Couldn't relaunch automatically", "Your ducks are already running the new version — quit and reopen Dockling by hand to see the updated settings window. (\(error.localizedDescription))")
+            return
+        }
         NSApp.terminate(nil)
     }
 

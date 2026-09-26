@@ -66,8 +66,99 @@ enum Installer {
     /// misleading, scary dialog for what's really just a clean, expected
     /// error). Callers decide what to do with it: main.swift prints and
     /// exits, FirstRunApp shows it as a normal alert via showError().
-    struct InstallError: Error, CustomStringConvertible {
+    // Also LocalizedError, not just CustomStringConvertible: plain Error's
+    // own `localizedDescription` bridges to NSError and ignores
+    // CustomStringConvertible entirely, which previously surfaced a generic
+    // "The operation couldn't be completed" in FirstRunApp's Reinstall-
+    // failure alert instead of this type's actual, actionable message.
+    struct InstallError: Error, CustomStringConvertible, LocalizedError {
         let description: String
+        var errorDescription: String? { description }
+    }
+
+    /// Replaces `destPath` with a copy of `sourcePath`, keeping the old copy
+    /// as a `.old` sibling until the new one is fully in place — a crash or
+    /// error partway through leaves the original recoverable rather than
+    /// gone (every direct delete-then-copy in this file used to skip this,
+    /// so a mid-copy failure could leave ~/.dockling/resources or
+    /// ~/.dockling/Dockling.app entirely missing with no automatic
+    /// recovery). Shared with FinishUpdate.swift, which used to duplicate
+    /// this same logic for its own bundle-replace step.
+    ///
+    /// `chmodPath`, if given, gets 0o755 after the copy (the destPath itself
+    /// for a bare binary, or the executable *inside* a copied bundle).
+    /// `clearsQuarantine` strips the quarantine flag a plain file copy
+    /// otherwise carries over from the original download.
+    static func safeReplace(destPath: String, sourcePath: String, fileManager: FileManager = .default, chmodPath: String? = nil, clearsQuarantine: Bool = false) throws {
+        let backupPath = destPath + ".old"
+        if fileManager.fileExists(atPath: backupPath) {
+            do {
+                try fileManager.removeItem(atPath: backupPath)
+            } catch {
+                // Surfaced clearly here rather than left to fail confusingly
+                // a few lines down at moveItem(destPath, backupPath) with a
+                // generic "already exists" error — and, left silent (as a
+                // bare try? used to do here), this exact stale leftover
+                // would otherwise block every future replace of this same
+                // path until someone noticed and removed it by hand.
+                throw InstallError(description: "a stale backup exists at \(backupPath) and couldn't be removed: \(error) — remove it manually and retry")
+            }
+        }
+        let hadExisting = fileManager.fileExists(atPath: destPath)
+        if hadExisting {
+            try fileManager.moveItem(atPath: destPath, toPath: backupPath)
+        }
+
+        do {
+            try fileManager.copyItem(atPath: sourcePath, toPath: destPath)
+            if let chmodPath {
+                try fileManager.setAttributes([.posixPermissions: 0o755], ofItemAtPath: chmodPath)
+            }
+            if clearsQuarantine {
+                clearQuarantineFlag(atPath: destPath)
+            }
+            if hadExisting {
+                try? fileManager.removeItem(atPath: backupPath)
+            }
+        } catch {
+            var recoveryError: Error?
+            do {
+                if fileManager.fileExists(atPath: destPath) {
+                    try fileManager.removeItem(atPath: destPath)
+                }
+                if hadExisting {
+                    try fileManager.moveItem(atPath: backupPath, toPath: destPath)
+                }
+            } catch {
+                recoveryError = error
+            }
+            if let recoveryError {
+                // Distinct from the plain re-throw below: this is the "the
+                // rollback itself failed" case, where destPath may now be
+                // completely missing rather than restored to its prior
+                // state — silently swallowing this (as bare try?s used to
+                // do here) hid exactly that, with the surfaced error still
+                // just describing the original copy failure as if recovery
+                // had quietly succeeded.
+                throw InstallError(description: "install failed (\(error)) and recovery also failed — \(destPath) may now be missing: \(recoveryError)")
+            }
+            throw error
+        }
+    }
+
+    /// A straight file copy carries the quarantine flag over from the
+    /// original download — harmless for how launchd execs this directly,
+    /// but stripped anyway so nothing about the copy still looks like an
+    /// unverified download later. Best-effort: only waits for xattr to
+    /// finish if it actually launched, rather than calling waitUntilExit()
+    /// unconditionally on a Process that may never have started.
+    private static func clearQuarantineFlag(atPath path: String) {
+        let clearQuarantine = Process()
+        clearQuarantine.executableURL = URL(fileURLWithPath: "/usr/bin/xattr")
+        clearQuarantine.arguments = ["-cr", path]
+        if (try? clearQuarantine.run()) != nil {
+            clearQuarantine.waitUntilExit()
+        }
     }
 
     static func run() throws {
@@ -112,7 +203,7 @@ enum Installer {
         // than assuming exactly how Bundle.module.resourceURL relates to
         // that subdirectory convention, which isn't the same for every
         // Package.swift resource-bundling configuration.
-        guard let oneKnownAsset = AssetResolver.resourceBundle.url(forResource: "idle", withExtension: "png", subdirectory: "Resources/yellow") else {
+        guard let oneKnownAsset = AssetResolver.resourceBundle?.url(forResource: "idle", withExtension: "png", subdirectory: "Resources/yellow") else {
             throw InstallError(description: "could not locate bundled icon/sound resources")
         }
         let sourceDir = oneKnownAsset.deletingLastPathComponent().deletingLastPathComponent()
@@ -120,10 +211,7 @@ enum Installer {
             .appendingPathComponent("resources")
 
         do {
-            if fileManager.fileExists(atPath: destDir) {
-                try fileManager.removeItem(atPath: destDir)
-            }
-            try fileManager.copyItem(atPath: sourceDir.path, toPath: destDir)
+            try safeReplace(destPath: destDir, sourcePath: sourceDir.path, fileManager: fileManager)
         } catch {
             throw InstallError(description: "could not install icon resources \(sourceDir.path) -> \(destDir): \(error)")
         }
@@ -144,20 +232,7 @@ enum Installer {
         let bundlePath = Bundle.main.bundlePath
         do {
             try fileManager.createDirectory(atPath: (installedAppBundlePath as NSString).deletingLastPathComponent, withIntermediateDirectories: true)
-            if fileManager.fileExists(atPath: installedAppBundlePath) {
-                try fileManager.removeItem(atPath: installedAppBundlePath)
-            }
-            try fileManager.copyItem(atPath: bundlePath, toPath: installedAppBundlePath)
-            try fileManager.setAttributes([.posixPermissions: 0o755], ofItemAtPath: installedBinaryPath)
-            // A straight file copy carries the quarantine flag over from
-            // the original download — harmless for how launchd execs this
-            // directly, but stripped anyway so nothing about this copy
-            // still looks like an unverified download later.
-            let clearQuarantine = Process()
-            clearQuarantine.executableURL = URL(fileURLWithPath: "/usr/bin/xattr")
-            clearQuarantine.arguments = ["-cr", installedAppBundlePath]
-            try? clearQuarantine.run()
-            clearQuarantine.waitUntilExit()
+            try safeReplace(destPath: installedAppBundlePath, sourcePath: bundlePath, fileManager: fileManager, chmodPath: installedBinaryPath, clearsQuarantine: true)
         } catch {
             throw InstallError(description: "could not install app bundle \(bundlePath) -> \(installedAppBundlePath): \(error)")
         }
@@ -170,11 +245,7 @@ enum Installer {
         let installedDir = (installedBinaryPath as NSString).deletingLastPathComponent
         do {
             try fileManager.createDirectory(atPath: installedDir, withIntermediateDirectories: true)
-            if fileManager.fileExists(atPath: installedBinaryPath) {
-                try fileManager.removeItem(atPath: installedBinaryPath)
-            }
-            try fileManager.copyItem(atPath: runningPath, toPath: installedBinaryPath)
-            try fileManager.setAttributes([.posixPermissions: 0o755], ofItemAtPath: installedBinaryPath)
+            try safeReplace(destPath: installedBinaryPath, sourcePath: runningPath, fileManager: fileManager, chmodPath: installedBinaryPath)
         } catch {
             throw InstallError(description: "could not install binary \(runningPath) -> \(installedBinaryPath): \(error)")
         }
@@ -220,26 +291,14 @@ enum Installer {
         let destResourcesDir = ((NSHomeDirectory() as NSString).appendingPathComponent(".dockling") as NSString)
             .appendingPathComponent("resources")
         do {
-            if fileManager.fileExists(atPath: destResourcesDir) {
-                try fileManager.removeItem(atPath: destResourcesDir)
-            }
-            try fileManager.copyItem(atPath: sourceResourcesInner, toPath: destResourcesDir)
+            try safeReplace(destPath: destResourcesDir, sourcePath: sourceResourcesInner, fileManager: fileManager)
         } catch {
             throw InstallError(description: "could not install icon resources \(sourceResourcesInner) -> \(destResourcesDir): \(error)")
         }
 
         do {
             try fileManager.createDirectory(atPath: (installedAppBundlePath as NSString).deletingLastPathComponent, withIntermediateDirectories: true)
-            if fileManager.fileExists(atPath: installedAppBundlePath) {
-                try fileManager.removeItem(atPath: installedAppBundlePath)
-            }
-            try fileManager.copyItem(atPath: sourceAppPath, toPath: installedAppBundlePath)
-            try fileManager.setAttributes([.posixPermissions: 0o755], ofItemAtPath: installedBinaryPath)
-            let clearQuarantine = Process()
-            clearQuarantine.executableURL = URL(fileURLWithPath: "/usr/bin/xattr")
-            clearQuarantine.arguments = ["-cr", installedAppBundlePath]
-            try? clearQuarantine.run()
-            clearQuarantine.waitUntilExit()
+            try safeReplace(destPath: installedAppBundlePath, sourcePath: sourceAppPath, fileManager: fileManager, chmodPath: installedBinaryPath, clearsQuarantine: true)
         } catch {
             throw InstallError(description: "could not install app bundle \(sourceAppPath) -> \(installedAppBundlePath): \(error)")
         }
@@ -256,13 +315,35 @@ enum Installer {
         try? fileManager.createDirectory(atPath: claudeDir, withIntermediateDirectories: true)
 
         var settings: [String: Any]
-        if let data = fileManager.contents(atPath: settingsPath),
-           let parsed = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+        if let data = fileManager.contents(atPath: settingsPath) {
+            // A missing file is the expected first-run case (start fresh) —
+            // but a file that *exists* and fails to parse (concurrent write
+            // by another tool, a hand-edit typo, a non-object top-level
+            // value) is not: silently falling back to [:] here used to mean
+            // writing that empty base back out below, permanently
+            // discarding every other tool's hooks and settings that were
+            // actually in the file. That directly contradicts this
+            // function's own "clean merge, never touches anything it
+            // didn't add" guarantee, so this now aborts instead.
+            guard let parsed = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+                throw InstallError(description: "\(settingsPath) exists but isn't valid JSON — refusing to merge hooks into it rather than risk overwriting its contents. Fix or remove the file, then retry.")
+            }
             settings = parsed
         } else {
             settings = [:]
         }
-        var hooks = (settings["hooks"] as? [String: Any]) ?? [:]
+        let existingHooksValue = settings["hooks"]
+        guard existingHooksValue == nil || existingHooksValue is [String: Any] else {
+            // Same reasoning as above: settings.json parsed fine overall,
+            // but "hooks" itself is some other shape (null, an array, a
+            // string) from a hand-edit or another tool's half-finished
+            // write. Silently treating that as empty and merging on top —
+            // this is *not* the same as removeHooks's own guard for this
+            // exact shape, which safely no-ops instead of also risking data
+            // loss, since uninstalling has nothing to merge back in.
+            throw InstallError(description: "\(settingsPath)'s \"hooks\" value isn't an object — refusing to merge into it rather than risk overwriting its contents. Fix or remove the \"hooks\" key, then retry.")
+        }
+        var hooks = (existingHooksValue as? [String: Any]) ?? [:]
 
         hooks["SessionStart"] = mergedGroups(
             existing: hooks["SessionStart"],
@@ -285,7 +366,14 @@ enum Installer {
             throw InstallError(description: "could not serialize merged settings.json")
         }
         do {
-            try output.write(to: URL(fileURLWithPath: settingsPath))
+            // Atomic, matching installHookScript's own write a few lines
+            // away — a plain (non-atomic) write left settings.json
+            // truncated/invalid if the process died mid-write (crash,
+            // SIGTERM from stopRunningProcesses during a reinstall, power
+            // loss, disk full), which the very next mergeHooks run would
+            // then refuse to touch per the guard above, rather than being
+            // able to recover automatically.
+            try output.write(to: URL(fileURLWithPath: settingsPath), options: .atomic)
             // settings.json now embeds the same secret Secret.swift locks to
             // 0600 — leaving this file at the default umask (typically
             // world-readable) would undermine that protection, since the
@@ -380,23 +468,39 @@ enum Installer {
     /// finally ~/.dockling itself.
     static func uninstall() {
         let fileManager = FileManager.default
-        removeHooks(fileManager: fileManager)
+        let hooksRemoved = removeHooks(fileManager: fileManager)
         LaunchdRegistration.uninstall()
         stopRunningProcesses()
 
         let docklingDir = (NSHomeDirectory() as NSString).appendingPathComponent(".dockling")
         try? fileManager.removeItem(atPath: docklingDir)
 
-        print("Dockling has been uninstalled: hooks removed from ~/.claude/settings.json, background process stopped, ~/.dockling removed.")
+        // hooksRemoved is false when settings.json didn't parse, or had no
+        // "hooks" object, at the moment this ran — removeHooks safely
+        // no-ops rather than risk touching a file it can't make sense of,
+        // but a flat, unconditional success message here used to claim
+        // hooks were removed regardless, leaving the user believing
+        // Claude Code had stopped reporting to Dockling when the hook
+        // entries (and the still-listening, now nonexistent port they
+        // point at) were actually untouched.
+        if hooksRemoved {
+            print("Dockling has been uninstalled: hooks removed from ~/.claude/settings.json, background process stopped, ~/.dockling removed.")
+        } else {
+            print("Dockling has been uninstalled: background process stopped, ~/.dockling removed. ~/.claude/settings.json couldn't be read or had no \"hooks\" object, so nothing there needed removing — check it by hand if Claude Code still seems to be reporting to Dockling.")
+        }
     }
 
-    private static func removeHooks(fileManager: FileManager) {
+    /// Returns whether settings.json actually had something to remove —
+    /// `uninstall()`'s own success message depends on this rather than
+    /// assuming it always succeeded.
+    @discardableResult
+    private static func removeHooks(fileManager: FileManager) -> Bool {
         let claudeDir = (NSHomeDirectory() as NSString).appendingPathComponent(".claude")
         let settingsPath = (claudeDir as NSString).appendingPathComponent("settings.json")
         guard let data = fileManager.contents(atPath: settingsPath),
               var settings = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               var hooks = settings["hooks"] as? [String: Any] else {
-            return // nothing installed to remove
+            return false // nothing installed to remove
         }
 
         hooks["SessionStart"] = withoutDocklingsOwn(
@@ -411,8 +515,9 @@ enum Installer {
         }
         settings["hooks"] = hooks
 
-        guard let output = try? JSONSerialization.data(withJSONObject: settings, options: [.prettyPrinted, .sortedKeys]) else { return }
-        try? output.write(to: URL(fileURLWithPath: settingsPath))
+        guard let output = try? JSONSerialization.data(withJSONObject: settings, options: [.prettyPrinted, .sortedKeys]) else { return false }
+        try? output.write(to: URL(fileURLWithPath: settingsPath), options: .atomic)
+        return true
     }
 
     /// Every Dockling-spawned process (dispatcher, mama session children,

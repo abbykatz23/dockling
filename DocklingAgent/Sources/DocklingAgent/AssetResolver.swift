@@ -29,7 +29,17 @@ enum AssetResolver {
     /// dir first there would be pointless (nothing's installed yet) and,
     /// worse, wrong on a reinstall (it'd resolve to the destination it's
     /// about to copy into, not the source to copy from).
-    static let resourceBundle: Bundle = {
+    ///
+    /// Optional, not a crashing fatalError: neither candidate below can ever
+    /// exist for a session/baby-duck child, which always runs from
+    /// ChildProcessLauncher's synthesized per-name bundle (just a symlinked
+    /// executable plus a minimal Info.plist — no Contents/Resources of its
+    /// own). That's harmless as long as resolveURL's installed-dir check
+    /// below succeeds first, which is the normal case — but a fatalError
+    /// here turns the one abnormal case (~/.dockling/resources missing or
+    /// incomplete) into a full duck crash instead of the same graceful
+    /// "missing asset" degradation every other lookup failure already gets.
+    static let resourceBundle: Bundle? = {
         let bundleName = "DocklingAgent_DocklingAgent.bundle"
         let executableDir = (Bundle.main.executableURL ?? URL(fileURLWithPath: CommandLine.arguments[0]))
             .deletingLastPathComponent()
@@ -43,7 +53,8 @@ enum AssetResolver {
         for candidate in candidates where FileManager.default.fileExists(atPath: candidate.path) {
             if let bundle = Bundle(url: candidate) { return bundle }
         }
-        fatalError("could not locate \(bundleName) near \(executableDir.path)")
+        fputs("warning: could not locate \(bundleName) near \(executableDir.path)\n", stderr)
+        return nil
     }()
 
     /// Prefers ~/.dockling/resources/<subdir>/<name>.<ext> (installed by
@@ -60,6 +71,6 @@ enum AssetResolver {
         if FileManager.default.fileExists(atPath: installedPath) {
             return URL(fileURLWithPath: installedPath)
         }
-        return resourceBundle.url(forResource: name, withExtension: ext, subdirectory: "Resources/\(subdir)")
+        return resourceBundle?.url(forResource: name, withExtension: ext, subdirectory: "Resources/\(subdir)")
     }
 }

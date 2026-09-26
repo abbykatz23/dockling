@@ -23,7 +23,18 @@ func runFinishUpdate(sourceAppPath: String, targetAppPath: String?) -> Never {
         // ~/.dockling copy installDownloadedUpdate just handled above, so
         // skipped if they happen to already be the same path.
         if let targetAppPath, targetAppPath != Installer.installedAppBundlePath {
-            try replaceBundle(at: targetAppPath, withAppAt: sourceAppPath)
+            // Shares Installer.safeReplace rather than a private duplicate
+            // of the same backup-and-restore logic — that shared version
+            // also fixes two bugs this one used to have: waitUntilExit()
+            // running unconditionally even when xattr failed to launch,
+            // and the recovery path's own failures being silently
+            // swallowed instead of surfaced.
+            try Installer.safeReplace(
+                destPath: targetAppPath,
+                sourcePath: sourceAppPath,
+                chmodPath: (targetAppPath as NSString).appendingPathComponent("Contents/MacOS/DocklingAgent"),
+                clearsQuarantine: true
+            )
         }
 
         print("dockling-finish-update-ok")
@@ -31,40 +42,5 @@ func runFinishUpdate(sourceAppPath: String, targetAppPath: String?) -> Never {
     } catch {
         fputs("error: \(error)\n", stderr)
         exit(1)
-    }
-}
-
-/// Swaps `targetPath` for `sourceApp`, preserving the old copy as a `.old`
-/// sibling until the new one is fully in place — a crash or error partway
-/// through leaves the original recoverable rather than gone. Simpler than
-/// replacing a process's own currently-executing bundle (not a concern
-/// here: this process runs from `sourceApp`, an unrelated path) — just an
-/// ordinary file swap.
-private func replaceBundle(at targetPath: String, withAppAt sourceApp: String) throws {
-    let fileManager = FileManager.default
-    let backupPath = targetPath + ".old"
-
-    if fileManager.fileExists(atPath: backupPath) {
-        try? fileManager.removeItem(atPath: backupPath)
-    }
-    if fileManager.fileExists(atPath: targetPath) {
-        try fileManager.moveItem(atPath: targetPath, toPath: backupPath)
-    }
-
-    do {
-        try fileManager.copyItem(atPath: sourceApp, toPath: targetPath)
-        try fileManager.setAttributes([.posixPermissions: 0o755], ofItemAtPath: (targetPath as NSString).appendingPathComponent("Contents/MacOS/DocklingAgent"))
-        let clearQuarantine = Process()
-        clearQuarantine.executableURL = URL(fileURLWithPath: "/usr/bin/xattr")
-        clearQuarantine.arguments = ["-cr", targetPath]
-        try? clearQuarantine.run()
-        clearQuarantine.waitUntilExit()
-        try? fileManager.removeItem(atPath: backupPath)
-    } catch {
-        try? fileManager.removeItem(atPath: targetPath)
-        if fileManager.fileExists(atPath: backupPath) {
-            try? fileManager.moveItem(atPath: backupPath, toPath: targetPath)
-        }
-        throw error
     }
 }
