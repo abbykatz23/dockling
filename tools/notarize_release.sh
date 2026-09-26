@@ -92,6 +92,16 @@ APP="$STAGING/Dockling.app"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$BINARY" "$APP/Contents/MacOS/DocklingAgent"
 cp "$REPO_ROOT/icons/AppIcon.icns" "$APP/Contents/Resources/AppIcon.icns"
+# Pre-compiled once from icons/Dockling.icon via actool (needs full Xcode,
+# not just Command Line Tools — see icons/Dockling.icon's own notes) and
+# checked in like AppIcon.icns above, rather than recompiled on every
+# release. CFBundleIconName below is what actually makes macOS 26+ use
+# this instead of falling back to the plain CFBundleIconFile .icns and
+# drawing its own gray compatibility plate behind it — confirmed directly:
+# without this, the Dock/Finder icon gets boxed even though the .icns
+# itself is pixel-clean, because a bare CFBundleIconFile with no matching
+# Asset Catalog entry is exactly what that compatibility behavior targets.
+cp "$REPO_ROOT/icons/Assets.car" "$APP/Contents/Resources/Assets.car"
 
 # AssetResolver.resourceBundle (a hand-written replacement for SPM's own
 # generated Bundle.module accessor — see its doc comment for the full story)
@@ -123,6 +133,8 @@ cat > "$APP/Contents/Info.plist" <<EOF
     <string>com.dockling.app</string>
     <key>CFBundleIconFile</key>
     <string>AppIcon</string>
+    <key>CFBundleIconName</key>
+    <string>Dockling</string>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleShortVersionString</key>

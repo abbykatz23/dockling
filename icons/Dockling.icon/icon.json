@@ -1,0 +1,19 @@
+{
+  "fill" : {
+    "automatic-gradient" : "extended-srgb:0.42700,0.66300,0.87800,1.00000"
+  },
+  "groups" : [
+    {
+      "layers" : [
+        {
+          "image-name" : "duck.png",
+          "name" : "duck"
+        }
+      ]
+    }
+  ],
+  "supported-platforms" : {
+    "circles" : [],
+    "squares" : "shared"
+  }
+}
