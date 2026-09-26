@@ -199,24 +199,24 @@ enum Installer {
         let fileManager = FileManager.default
         try installHookScript(fileManager: fileManager)
 
-        let sourceResourceBundle = ((sourceAppPath as NSString)
+        let sourceResourceBundlePath = ((sourceAppPath as NSString)
             .appendingPathComponent("Contents/Resources") as NSString)
             .appendingPathComponent(resourceBundleName)
-        // The copy source has to be the bundle's own *inner* Resources
-        // folder (matching installResources()'s own walk-up-from-a-known-
-        // asset logic below), not the bundle folder itself — copying the
-        // whole bundle folder here previously nested everything one level
-        // too deep (~/.dockling/resources/Resources/<color>/... instead of
-        // ~/.dockling/resources/<color>/...), which resolveURL never
-        // accounts for. That silently broke every icon/sound lookup for
-        // any session started after an in-app update, only surfacing once
-        // AssetResolver.resourceBundle's own fallback — always broken for a
-        // session child, which runs from a symlink-only synthesized bundle
-        // with no real Resources folder of its own — got hit and fatalError'd.
-        let sourceResourcesInner = (sourceResourceBundle as NSString).appendingPathComponent("Resources")
-        guard fileManager.fileExists(atPath: sourceResourcesInner) else {
-            throw InstallError(description: "downloaded app is missing \(resourceBundleName)/Resources — malformed or incompatible build")
+        // Resolved via a real Bundle lookup (same known-asset-then-walk-up
+        // trick installResources() uses below), not hardcoded path math —
+        // a hardcoded ".../Resources" guess broke the moment a newer
+        // SwiftPM/Xcode toolchain started wrapping this resource bundle in
+        // its own proper Contents/Resources/ package structure instead of
+        // a flat folder (confirmed happening: installing Xcode changed
+        // `xcode-select`'s active toolchain and silently changed this
+        // bundle's own internal layout on the very next build). Bundle's
+        // own resource resolution understands either layout automatically,
+        // which is exactly why installResources() below never broke.
+        guard let sourceBundle = Bundle(path: sourceResourceBundlePath),
+              let oneKnownAsset = sourceBundle.url(forResource: "idle", withExtension: "png", subdirectory: "Resources/yellow") else {
+            throw InstallError(description: "downloaded app is missing \(resourceBundleName) — malformed or incompatible build")
         }
+        let sourceResourcesInner = oneKnownAsset.deletingLastPathComponent().deletingLastPathComponent().path
         let destResourcesDir = ((NSHomeDirectory() as NSString).appendingPathComponent(".dockling") as NSString)
             .appendingPathComponent("resources")
         do {
