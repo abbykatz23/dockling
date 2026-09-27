@@ -82,11 +82,23 @@
      text link (not a second pill button, so it doesn't visually compete
      with the one real call-to-action, the download button right below
      it), using the same blue already in the "n" of the title above. */
+  /* Explicitly resets every pill-button property the more general
+     `.reveal a` rule above still applies otherwise (border, padding,
+     border-radius, inline-block sizing) — color/text-decoration alone
+     weren't enough to stop looking like a button, since those box
+     properties aren't things this rule was touching at all, just
+     inheriting from the higher-specificity-losing but still-applying
+     general rule for whatever it doesn't override. */
   .reveal p a {
+    display: inline;
+    padding: 0;
+    border: none;
+    border-radius: 0;
     color: #2E8DFB;
     text-decoration: underline;
+    white-space: normal;
   }
-  .reveal p a:hover { color: #1a1a1a; }
+  .reveal p a:hover { color: #1a1a1a; background: none; }
 
   .duck {
     /* Positioned via plain left/top, set once by the script on load, and
@@ -193,10 +205,16 @@
   .help-duck.sleepy .help-duck-thinking,
   .help-duck.sleepy .help-duck-thumbsup { opacity: 0; }
   .help-duck.sleepy .help-duck-sleepy { opacity: 1; }
-  .help-duck:hover .help-duck-img,
-  .help-duck:focus .help-duck-img { opacity: 0; transform: scale(1.08); }
-  .help-duck:hover .help-duck-eureka,
-  .help-duck:focus .help-duck-eureka { opacity: 1; }
+  /* .hovering, not :hover/:focus directly — a plain :focus sticks around
+     after a click even once the mouse has moved away (confirmed happening:
+     clicking her then moving away left the eureka image showing via :focus
+     while the bubble *text*, driven separately by JS mouseleave, had
+     already reverted to "Need help?" — the two fell out of sync). Routing
+     both the image and the text through the exact same JS-toggled class
+     (see setHovering() below) is what keeps them permanently in lockstep,
+     regardless of mouse vs. keyboard, or a click's lingering focus. */
+  .help-duck.hovering .help-duck-img { opacity: 0; transform: scale(1.08); }
+  .help-duck.hovering .help-duck-eureka { opacity: 1; }
   .help-duck:focus { outline: none; }
 
   /* A hand-drawn-style speech bubble, same 2px-outline-plus-offset-shadow
@@ -224,8 +242,7 @@
     pointer-events: none;
     transition: transform .15s ease;
   }
-  .help-duck:hover .help-bubble,
-  .help-duck:focus .help-bubble {
+  .help-duck.hovering .help-bubble {
     transform: translateY(-3px);
   }
   /* Two stacked triangles (outline color, then a slightly smaller white
@@ -605,37 +622,48 @@
   }
   showRestBubble();
 
+  // Single source of truth for "is she currently being hovered/focused,"
+  // driving both the image (via the .hovering class the CSS crossfade
+  // keys off of) and the bubble text together, always in lockstep.
+  // Previously the image used CSS :hover/:focus directly while the text
+  // was set independently by mouseenter/mouseleave — a real bug, not
+  // hypothetical: clicking her focuses the element (so :focus keeps the
+  // eureka image showing), then moving the mouse away fires mouseleave
+  // (reverting the *text* to "Need help?") without ever blurring — the
+  // two fell out of sync, eureka duck with a "Need help?" bubble. Routing
+  // everything through this one function is what makes "mouse moved away"
+  // always win for both, regardless of any lingering click-focus.
+  var isHovering = false;
+  function setHovering(hovering) {
+    isHovering = hovering;
+    helpDuck.classList.toggle("hovering", hovering);
+    helpBubble.textContent = hovering ? HOVER_HINT_TEXT : restBubbleText();
+  }
+
   // Toggles the .sleepy class the CSS crossfade (above) keys off of, and
   // refreshes the bubble text to match — called from goSleepy()/
   // markActivity() on the big duck's own shared idle timer, not a second
-  // timer of her own. Same "skip the bubble text update while genuinely
-  // hovering" guard as markSolved() below, for the same reason.
+  // timer of her own. Skipped while genuinely hovering/focused, same as
+  // markSolved() below, so the hint stays showing until that ends on its
+  // own rather than getting interrupted mid-hover.
   function setHelpDuckSleepy(isSleepy) {
     if (helpSleepy === isSleepy) return;
     helpSleepy = isSleepy;
     helpDuck.classList.toggle("sleepy", isSleepy);
-    if (!helpDuck.matches(":hover")) showRestBubble();
+    if (!isHovering) showRestBubble();
   }
 
-  helpDuck.addEventListener("mouseenter", function () {
-    helpBubble.textContent = HOVER_HINT_TEXT;
-  });
-  helpDuck.addEventListener("mouseleave", showRestBubble);
-  helpDuck.addEventListener("focus", function () {
-    helpBubble.textContent = HOVER_HINT_TEXT;
-  });
-  helpDuck.addEventListener("blur", showRestBubble);
+  helpDuck.addEventListener("mouseenter", function () { setHovering(true); });
+  helpDuck.addEventListener("mouseleave", function () { setHovering(false); });
+  helpDuck.addEventListener("focus", function () { setHovering(true); });
+  helpDuck.addEventListener("blur", function () { setHovering(false); });
 
   function markSolved() {
     if (solved) return; // one-way — once she's proud of you, she stays proud
     solved = true;
     helpDuck.classList.add("solved");
     helpDuck.setAttribute("aria-label", SOLVED_TEXT);
-    // Only updates the visible bubble text if she's not mid-hover right
-    // now (dragging the big duck while also hovering the corner is an odd
-    // combo, but a real one) — the hover hint stays showing until the
-    // mouse actually leaves, exactly like any other rest/hover swap.
-    if (!helpDuck.matches(":hover")) showRestBubble();
+    if (!isHovering) showRestBubble();
   }
 })();
 </script>
