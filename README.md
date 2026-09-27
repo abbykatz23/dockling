@@ -105,6 +105,8 @@ Both remove the same things:
 
 This can't be undone — a later reinstall starts from scratch (fresh per-project colors, default config) rather than restoring what was there before.
 
+**Just dragging Dockling.app to the Trash also works**, even without opening it to click Uninstall first — the background process notices its app is gone (checked once a minute, acted on after two consecutive misses to ignore any brief in-progress state) and uninstalls itself the same way, within about two minutes.
+
 ## Updating
 
 Open Dockling (in Applications) and use the **Check for Updates** button in the settings window — no need to download a new DMG or drag anything to Applications by hand:

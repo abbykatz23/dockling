@@ -59,6 +59,57 @@ final class Dispatcher {
         }
         server.start()
         self.server = server
+
+        scheduleUninstallCheck()
+    }
+
+    // Consecutive misses required before actually uninstalling, not just one
+    // — a single missing-on-disk observation could in principle be a
+    // fleeting, in-progress filesystem state (e.g. mid-swap during a
+    // self-update's own safeReplace) rather than the app genuinely having
+    // been thrown away. Two independent checks a full interval apart
+    // makes that essentially impossible to false-trigger on, at the cost of
+    // one extra interval's delay before a real removal is acted on — a
+    // trade very much worth making, since the only downside of the delay is
+    // the background process sticking around a little longer, while the
+    // downside of a false trigger is silently wiping a user's live hooks
+    // and config.
+    private var missingAppLocationStreak = 0
+
+    private func scheduleUninstallCheck() {
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.uninstallCheckInterval) { [weak self] in
+            self?.checkIfAppLocationWasRemoved()
+            self?.scheduleUninstallCheck()
+        }
+    }
+
+    private static let uninstallCheckInterval: TimeInterval = 60
+
+    /// If the user opened Dockling as a real app bundle at some point (see
+    /// InstalledAppLocation.record, called on every launch), and that exact
+    /// path has since stopped existing on two consecutive checks a minute
+    /// apart, the most natural reading of that — confirmed as a real,
+    /// reported gap, not a hypothetical — is that they dragged it to the
+    /// Trash meaning to get rid of Dockling entirely. Nothing else in this
+    /// codebase would ever notice that: the dispatcher and every session
+    /// child run from a private, permanent copy under ~/.dockling (see
+    /// Installer.installedAppBundlePath) specifically so they're immune to
+    /// the visible app moving or being replaced — which is exactly why
+    /// removing that visible app on its own does nothing today. Treating its
+    /// disappearance as the uninstall it's clearly meant to be closes that
+    /// gap, using the exact same Installer.uninstall() the in-app Uninstall
+    /// button calls.
+    private func checkIfAppLocationWasRemoved() {
+        guard let recordedPath = InstalledAppLocation.load() else { return }
+        guard !FileManager.default.fileExists(atPath: recordedPath) else {
+            missingAppLocationStreak = 0
+            return
+        }
+        missingAppLocationStreak += 1
+        guard missingAppLocationStreak >= 2 else { return }
+        fputs("[dockling] \(recordedPath) no longer exists (confirmed on two checks a minute apart) — treating this as the user removing Dockling and uninstalling\n", stderr)
+        Installer.uninstall()
+        exit(0)
     }
 
     /// Adopts still-running children left behind by a previous dispatcher

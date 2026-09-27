@@ -17,6 +17,16 @@ final class FirstRunDelegate: NSObject, NSApplicationDelegate {
         NSApp.setActivationPolicy(.regular)
         NSApp.activate(ignoringOtherApps: true)
 
+        // Records wherever the user is actually running this from (usually
+        // /Applications/Dockling.app, but not necessarily) every time they
+        // open it — not just once at install — so it self-corrects if they
+        // move it, and stays current for the dispatcher's own periodic
+        // "did they throw this away" check (see InstalledAppLocation.swift).
+        // Meaningless for a bare from-source dev binary, so skipped then.
+        if Installer.isRealAppBundle {
+            InstalledAppLocation.record(Bundle.main.bundlePath)
+        }
+
         if LaunchdRegistration.isInstalled {
             openSettingsWindow(welcomeMessage: nil)
         } else {
