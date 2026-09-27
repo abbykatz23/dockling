@@ -115,7 +115,18 @@ final class SessionChildDelegate: NSObject, NSApplicationDelegate {
 
         fputs("[dockling] session \(sessionID) child started on port \(port), config subagentDucks=\(dockingConfig.subagentDucks)\n", stderr)
 
-        let server = HookServer(port: port, expectedToken: sharedSecret) { [weak self] rawJSON, event in
+        let server = HookServer(port: port, expectedToken: sharedSecret, onBindFailureExhausted: { [weak self] in
+            // Should be unreachable in practice now that HookServer retries
+            // on the real (async) bind-failure signal instead of one that
+            // essentially never fired — see its own doc comment. Kept as a
+            // last resort rather than removed: a process that can never
+            // receive another hook event has nothing left to do, and
+            // exiting cleanly here is strictly better than the alternative,
+            // which is exactly the leak this whole fix targets — sitting
+            // around forever as a frozen, untrackable Dock icon.
+            fputs("[dockling] session \(self?.sessionID ?? "?") could not bind its port after repeated attempts, exiting rather than running with no working hook server\n", stderr)
+            NSApp.terminate(nil)
+        }) { [weak self] rawJSON, event in
             self?.handle(rawJSON: rawJSON, event: event)
         }
         server.start()
