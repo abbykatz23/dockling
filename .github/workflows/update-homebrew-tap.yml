@@ -30,7 +30,13 @@ jobs:
             TAG=$(gh api "repos/${{ github.repository }}/releases/latest" --jq .tag_name)
           fi
           VERSION="${TAG#v}"
-          DIGEST=$(gh api "repos/${{ github.repository }}/releases/tags/$TAG" --jq '.assets[] | select(.name == "Dockling.dmg") | .digest')
+          # `// empty` turns a missing/still-null digest into no output at
+          # all, so the emptiness check below actually catches it — plain
+          # `.digest` would otherwise print the literal string "null" (jq's
+          # rendering of JSON null), which isn't empty and isn't prefixed
+          # with "sha256:", so it would sail through as SHA256="null" and
+          # get committed straight into the cask.
+          DIGEST=$(gh api "repos/${{ github.repository }}/releases/tags/$TAG" --jq '.assets[] | select(.name == "Dockling.dmg") | .digest // empty')
           SHA256="${DIGEST#sha256:}"
           if [ -z "$SHA256" ]; then
             echo "error: no sha256 digest found for Dockling.dmg on release $TAG" >&2

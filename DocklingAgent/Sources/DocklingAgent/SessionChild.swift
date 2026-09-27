@@ -48,6 +48,16 @@ final class SessionChildDelegate: NSObject, NSApplicationDelegate {
     // Mama-only state (babies never populate these).
     private var babies: [String: Baby] = [:] // agent_id -> baby
     private var babyOrder: [String] = [] // agent_ids in first-seen order, for a stable family layout across relaunches
+    // A relaunched baby's old pid (see SelfRelaunched handling below) stops
+    // being tracked in `babies` the instant her entry's pid is overwritten
+    // with the new one — but the old process isn't actually confirmed gone
+    // until the grace-then-SIGTERM check that follows finishes, and
+    // occasionally (the leak README documents under Known limitations)
+    // never actually dies at all. Counted separately here and included in
+    // the baby-duck cap below, so a burst of relaunches — or the
+    // not-yet-root-caused leak itself — can't quietly exceed the cap just
+    // because `babies.count` only ever reflects one pid per agent_id.
+    private var pendingOrphanPids: Set<Int32> = []
     private var nextBabyPort: UInt16 = UInt16.random(in: 30000...60000)
     private var relaunchWorkItem: DispatchWorkItem?
 
@@ -130,8 +140,23 @@ final class SessionChildDelegate: NSObject, NSApplicationDelegate {
             // grace-then-force-kill the dispatcher uses for its own
             // SelfRelaunched handling.
             if let oldPid, oldPid != Int32(newPid) {
-                DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) {
-                    if SessionRegistry.isAlive(pid: oldPid) { kill(oldPid, SIGTERM) }
+                pendingOrphanPids.insert(oldPid)
+                DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) { [weak self] in
+                    guard let self else { return }
+                    guard SessionRegistry.isAlive(pid: oldPid) else {
+                        self.pendingOrphanPids.remove(oldPid)
+                        return
+                    }
+                    kill(oldPid, SIGTERM)
+                    // Give the signal a moment to land before deciding
+                    // whether she actually exited — if she's still alive
+                    // after this, she's the leak documented in the README,
+                    // and stays counted so a persistent leak still counts
+                    // against the cap instead of becoming invisible to it.
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+                        guard let self, !SessionRegistry.isAlive(pid: oldPid) else { return }
+                        self.pendingOrphanPids.remove(oldPid)
+                    }
                 }
             }
             return
@@ -263,7 +288,22 @@ final class SessionChildDelegate: NSObject, NSApplicationDelegate {
         // dropped from here on, same as the subagentDucks-disabled case
         // above — nothing else about her actual work is affected, only
         // whether she gets a visual.
-        if dockingConfig.limitSubagentDucks, babies.count >= DocklingConfig.maxSubagentDucks {
+        //
+        // Reloaded fresh from disk rather than using the process-wide
+        // `dockingConfig` (loaded once at startup, same as every other
+        // setting) — this is the one setting where a stale in-memory copy
+        // defeats its own purpose: it's specifically meant to react to an
+        // already-crowded Dock, and mama only relaunches (the moment she'd
+        // otherwise pick up a new value) when a new baby successfully
+        // spawns, which a stuck-on cap prevents from ever happening. The
+        // extra disk read only happens here, on a brand-new subagent, not
+        // on every forwarded event, so the cost is negligible.
+        // pendingOrphanPids.count is included alongside babies.count since a
+        // relaunched baby's old pid stops appearing in `babies` before it's
+        // actually confirmed gone (see its own declaration above) — without
+        // this, a burst of relaunches could let the real number of running
+        // baby-duck processes exceed the cap.
+        if DocklingConfig.load().limitSubagentDucks, babies.count + pendingOrphanPids.count >= DocklingConfig.maxSubagentDucks {
             return
         }
 
