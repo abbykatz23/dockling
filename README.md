@@ -9,9 +9,31 @@ See [DOCKLING_SPEC.md](./DOCKLING_SPEC.md) for the full design rationale. This R
 - One Dock icon per active Claude Code session (not one aggregate icon), driven by Claude Code's [hook system](https://docs.claude.com/en/docs/claude-code/hooks).
 - Each session's duck gets a random color from a 9-color pool, avoiding colors currently in use by other active sessions; that color is then remembered per project (see [Per-project colors](#per-project-colors)).
 - Hovering a Dock icon shows the project name.
-- Poses: idle, bash (construction), edit (coding), search (detective), other-tool, awaiting-input, error, eureka (task completed), committing (bride or groom formalwear, for `git commit` — picked randomly once per session/subagent process, not configurable), pulling (fishing, for `git pull`), pushing (box, for `git push`), testing (scientist, for running a test suite — `pytest`, `jest`, `npm test`, and similar), compressing (squished, for `zip`/`tar`/`gzip`/etc. — also shown when Claude Code compacts its own context), sleepy (pajamas, shown automatically once idle has sat unchanged for 5 minutes — any activity wakes the duck right back up), butt (farewell — shown for 1.5s right before the duck exits on session end).
-- Sound effects: a short cue plays when a session becomes ready for your next message (any `Stop`, whichever pose shows first), and another when it's specifically waiting on you to answer something (`Notification` → awaiting-input).
+- The duck's pose changes in real time with what that session is doing — see the [Duck Key](#duck-key) below for exactly what each pose means and when it shows up.
+- Sound effects: a short cue plays when a session becomes ready for your next message, and another when it's specifically waiting on you to answer something — each independently toggleable (see [Configuration](#configuration)).
 - Each subagent a session spawns gets its own duck too — same color as its parent, 80% her size — that appears while the subagent's working and disappears shortly after it reports back. See [Subagent ("baby") ducks](#subagent-baby-ducks). Can be turned off — see [Configuration](#configuration).
+
+## Duck Key
+
+| | Pose | When it shows |
+|---|---|---|
+| <img src="DocklingAgent/Sources/DocklingAgent/Resources/yellow/idle.png" width="64" alt="Idle"> | **Idle** | A session just started, or a turn ended without calling any tools |
+| <img src="DocklingAgent/Sources/DocklingAgent/Resources/yellow/bash.png" width="64" alt="Bash"> | **Running a shell command** | A Bash/shell tool call is in progress |
+| <img src="DocklingAgent/Sources/DocklingAgent/Resources/yellow/edit.png" width="64" alt="Edit"> | **Editing a file** | A file-editing tool call is in progress |
+| <img src="DocklingAgent/Sources/DocklingAgent/Resources/yellow/search.png" width="64" alt="Search"> | **Searching or reading** | A web search or codebase search/read tool call is in progress |
+| <img src="DocklingAgent/Sources/DocklingAgent/Resources/yellow/other.png" width="64" alt="Other"> | **Using a tool** | Any other tool call — also shown right after you send a new message, standing in for "thinking," since there's no hook for when the model actually starts generating |
+| <img src="DocklingAgent/Sources/DocklingAgent/Resources/yellow/awaiting-input.png" width="64" alt="Awaiting input"> | **Waiting on you** | Claude Code needs your input or permission to continue |
+| <img src="DocklingAgent/Sources/DocklingAgent/Resources/yellow/error.png" width="64" alt="Error"> | **Error** | A tool call failed |
+| <img src="DocklingAgent/Sources/DocklingAgent/Resources/yellow/eureka.png" width="64" alt="Eureka"> | **Task complete** | A turn that did real work (called at least one tool) finished successfully, or a todo-list-style milestone completed |
+| <img src="DocklingAgent/Sources/DocklingAgent/Resources/yellow/committing-bride.png" width="64" alt="Committing (bride)"> <img src="DocklingAgent/Sources/DocklingAgent/Resources/yellow/committing-groom.png" width="64" alt="Committing (groom)"> | **Committing** | Running `git commit` — bride or groom formalwear, picked randomly once per session/subagent process, not configurable |
+| <img src="DocklingAgent/Sources/DocklingAgent/Resources/yellow/pulling.png" width="64" alt="Pulling"> | **Pulling** | Running `git pull` |
+| <img src="DocklingAgent/Sources/DocklingAgent/Resources/yellow/pushing.png" width="64" alt="Pushing"> | **Pushing** | Running `git push` |
+| <img src="DocklingAgent/Sources/DocklingAgent/Resources/yellow/testing.png" width="64" alt="Testing"> | **Running tests** | Running a test suite — `pytest`, `jest`, `npm test`, and similar |
+| <img src="DocklingAgent/Sources/DocklingAgent/Resources/yellow/compressing.png" width="64" alt="Compressing"> | **Compressing or compacting** | Running `zip`/`tar`/`gzip`/etc. — also shown when Claude Code compacts its own context |
+| <img src="DocklingAgent/Sources/DocklingAgent/Resources/yellow/sleepy.png" width="64" alt="Sleepy"> | **Idle 5+ minutes** | No activity for 5 minutes straight; any activity wakes the duck right back up |
+| <img src="DocklingAgent/Sources/DocklingAgent/Resources/yellow/butt.png" width="64" alt="Farewell"> | **Session ending** | Shown for 1.5s right before the duck exits, as the session ends |
+
+Shown here in yellow — the actual color is per-project, not per-pose (see [Per-project colors](#per-project-colors)). This same key is also shown in-app, in the settings window.
 
 ## Requirements
 
@@ -87,6 +109,8 @@ Open Dockling (in Applications) and use the **Check for Updates** button in the 
 
 This checks `github.com/abbykatz23/dockling`'s latest release, verifies it's signed and notarized (the same check Gatekeeper itself would do) and signed by the same developer as the copy you already have installed, before installing it — never an arbitrary/unverified download. Not available for a from-source build (nothing to update *to* via this path — use `git pull` + rebuild instead).
 
+**Reinstall vs. Update** — the settings window also has a **Reinstall** button, which does something different: it re-registers hooks and restarts the background process using whatever's *already installed*, without checking for anything newer. Use it to repair a broken install (hooks got wiped by hand-editing `~/.claude/settings.json`, the `launchd` registration got removed, etc.) — Update won't help there, since as far as it's concerned nothing's out of date.
+
 ## Per-project colors
 
 - First session in a project: a color is picked at random, avoiding colors already in use by another currently-active session, then persisted to `~/.dockling/projects.json` keyed by the project's absolute path.
@@ -136,7 +160,7 @@ Read once at process startup (dispatcher and every session child each load their
 
 ## Known limitations
 
-- Dev build only: no code signing, notarization, DMG, or Homebrew tap yet — that needs an Apple Developer account. Everything above runs from a local `swift build`.
+- No Homebrew tap yet — Releases (signed, notarized DMG) is the only install path today.
 - No telemetry of any kind (this is intentional, not a gap — see `DOCKLING_SPEC.md`).
 
 ## License

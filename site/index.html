@@ -78,6 +78,16 @@
   }
   .reveal a:hover { background: #1a1a1a; color: #fff; }
 
+  /* "Curious?" itself is now the link to the README — an ordinary blue
+     text link (not a second pill button, so it doesn't visually compete
+     with the one real call-to-action, the download button right below
+     it), using the same blue already in the "n" of the title above. */
+  .reveal p a {
+    color: #2E8DFB;
+    text-decoration: underline;
+  }
+  .reveal p a:hover { color: #1a1a1a; }
+
   .duck {
     /* Positioned via plain left/top, set once by the script on load, and
        kept that way for its whole life — no translate(-50%,-50%) centering
@@ -144,6 +154,101 @@
   .title span:nth-child(7) { transform: rotate(-6deg) translateY(2px); }
   .title span:nth-child(8) { transform: rotate(6deg) translateY(-3px); }
   .title span:nth-child(9) { transform: rotate(-4deg) translateY(3px); }
+
+  /* A little "help" duck in the corner — thinking pose at rest, crossfades
+     to the eureka pose on hover, and — once the big duck's actually been
+     dragged — permanently on to the thumbs-up pose at rest (both via a
+     `.solved` class JS adds on the first real drag movement, "even a
+     little bit"; CSS alone can't track a one-way, page-lifetime event like
+     that, only JS keeps state). Fixed in place, unlike the big duck: this
+     one's a UI element, not a toy. */
+  .help-duck {
+    position: fixed;
+    left: max(16px, 2vw);
+    bottom: max(16px, 2vh);
+    width: 56px;
+    height: 56px;
+    z-index: 10;
+    -webkit-user-select: none;
+    user-select: none;
+  }
+  .help-duck-img {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    display: block;
+    filter: drop-shadow(0 4px 6px rgba(0, 0, 0, 0.14));
+    transition: opacity .2s ease, transform .2s ease;
+  }
+  /* Priority (highest wins): hovering/focused > sleepy > solved > default —
+     each just toggles which single image is opacity:1, so exactly one is
+     ever visible regardless of which combination of .sleepy/.solved/:hover
+     is currently true. */
+  .help-duck-eureka,
+  .help-duck-thumbsup,
+  .help-duck-sleepy { opacity: 0; }
+  .help-duck.solved .help-duck-thinking { opacity: 0; }
+  .help-duck.solved .help-duck-thumbsup { opacity: 1; }
+  .help-duck.sleepy .help-duck-thinking,
+  .help-duck.sleepy .help-duck-thumbsup { opacity: 0; }
+  .help-duck.sleepy .help-duck-sleepy { opacity: 1; }
+  .help-duck:hover .help-duck-img,
+  .help-duck:focus .help-duck-img { opacity: 0; transform: scale(1.08); }
+  .help-duck:hover .help-duck-eureka,
+  .help-duck:focus .help-duck-eureka { opacity: 1; }
+  .help-duck:focus { outline: none; }
+
+  /* A hand-drawn-style speech bubble, same 2px-outline-plus-offset-shadow
+     language as .reveal a and .help-bubble's own tail below — always
+     visible now (its *text* is what changes, driven by JS: "Need help?"
+     at rest, "I think the duck is hiding something" on hover, "Genius!"
+     at rest once solved), not hidden until hover the way it started out. */
+  .help-bubble {
+    position: absolute;
+    left: 0;
+    bottom: calc(100% + 14px);
+    /* Hugs whatever text is actually showing ("Need help?", "Genius!", the
+       longer hover hint) instead of one fixed width sized for the longest
+       of them — max-width is what still wraps that longer one instead of
+       overflowing, rather than growing the box arbitrarily wide. */
+    width: max-content;
+    max-width: 200px;
+    background: #fff;
+    border: 2px solid #1a1a1a;
+    border-radius: 14px;
+    padding: 10px 12px;
+    font-size: 13px;
+    line-height: 1.35;
+    box-shadow: 2px 3px 0 rgba(0, 0, 0, 0.1);
+    pointer-events: none;
+    transition: transform .15s ease;
+  }
+  .help-duck:hover .help-bubble,
+  .help-duck:focus .help-bubble {
+    transform: translateY(-3px);
+  }
+  /* Two stacked triangles (outline color, then a slightly smaller white
+     one on top) is the standard way to give a CSS speech-bubble tail the
+     same 2px-border look as the bubble body itself, since a single
+     border-only triangle can't have its own inner fill/outer stroke. */
+  .help-bubble::after,
+  .help-bubble::before {
+    content: "";
+    position: absolute;
+    border: 7px solid transparent;
+  }
+  .help-bubble::after {
+    left: 18px;
+    top: 100%;
+    border-top-color: #1a1a1a;
+  }
+  .help-bubble::before {
+    left: 20px;
+    top: calc(100% - 2px);
+    border-width: 5px;
+    border-top-color: #fff;
+  }
 </style>
 </head>
 <body class="loading">
@@ -161,11 +266,19 @@
 </div>
 
 <div class="reveal" id="reveal">
-  <p>Curious?</p>
+  <p><a href="https://github.com/abbykatz23/dockling/blob/main/README.md" target="_blank" rel="noopener">Curious?</a></p>
   <a id="download-link" href="https://github.com/abbykatz23/dockling/releases/latest/download/Dockling.dmg">Download dockling for Mac</a>
 </div>
 
 <img class="duck" id="duck" src="assets/yellow-idle-hires.png" alt="A duck. Try dragging her.">
+
+<div class="help-duck" id="helpDuck" tabindex="0" aria-label="Need help?">
+  <div class="help-bubble" id="helpBubble">Need help?</div>
+  <img class="help-duck-img help-duck-thinking" src="assets/help-yellow-thinking.png" alt="">
+  <img class="help-duck-img help-duck-eureka" src="assets/help-yellow-eureka.png" alt="">
+  <img class="help-duck-img help-duck-thumbsup" src="assets/help-yellow-thumbsup.png" alt="">
+  <img class="help-duck-img help-duck-sleepy" src="assets/help-yellow-sleepy.png" alt="">
+</div>
 
 <script>
 (function () {
@@ -255,15 +368,18 @@
     duck.addEventListener("error", revealPage);
   }
 
-  // Falls asleep after 60s with no activity anywhere on the page — not
+  // Falls asleep after 45s with no activity anywhere on the page — not
   // just no interaction with her specifically. Any real drag already keeps
   // resetting this via pointermove, so she can never actually doze off
   // mid-drag; the `dragging` check below is just a defensive second layer
   // in case some browser ever fires these in a different order than
   // expected. Prefetched lazily (not <link rel=preload>, which would
   // compete for bandwidth with the art actually needed for first paint)
-  // once the page is already up and idle-ish.
-  var SLEEPY_TIMEOUT = 60 * 1000;
+  // once the page is already up and idle-ish. The corner help duck shares
+  // this exact same timer/trigger (see setHelpDuckSleepy below) rather than
+  // running a second one of her own — one page-wide notion of "idle,"
+  // not two independently-drifting clocks.
+  var SLEEPY_TIMEOUT = 45 * 1000;
   var sleepyTimer = null;
 
   if (duck.complete) ensurePrefetched(DEFAULT_COLOR);
@@ -273,6 +389,7 @@
     if (dragging) return;
     currentPose = "sleepy";
     applyDuckImage();
+    setHelpDuckSleepy(true);
   }
 
   function scheduleSleepy() {
@@ -285,6 +402,7 @@
       currentPose = "idle";
       applyDuckImage();
     }
+    setHelpDuckSleepy(false);
     scheduleSleepy();
   }
 
@@ -359,6 +477,7 @@
   window.addEventListener("pointermove", function (e) {
     if (dragging) {
       place(e.clientX, e.clientY);
+      markSolved(); // any real movement while held counts, even a little
       return;
     }
     var onDuck = alphaAt(e.clientX, e.clientY) > ALPHA_THRESHOLD;
@@ -413,6 +532,7 @@
   function selectColor(color) {
     currentColor = color;
     applyDuckImage();
+    applyHelpDuckColor(color);
     ensurePrefetched(color);
   }
 
@@ -424,6 +544,7 @@
     letter.addEventListener("mouseleave", function () {
       currentColor = stickyColor;
       applyDuckImage();
+      applyHelpDuckColor(stickyColor);
     });
     letter.addEventListener("click", function () {
       stickyColor = color;
@@ -434,6 +555,88 @@
       selectColor(color);
     });
   });
+
+  // The corner "help" duck: thinking pose + "Need help?" at rest, crossfades
+  // to the eureka pose + a hint on hover (image crossfade is plain CSS —
+  // see its own comment — only the bubble *text* needs JS, since swapping
+  // text content isn't something CSS alone can do cleanly). Once the big
+  // duck's actually been dragged (any real movement, not just a click —
+  // wired into the drag handler above via markSolved()), she "gets it" for
+  // the rest of the visit: thumbs-up pose + "Genius!" at rest, permanently.
+  var helpDuck = document.getElementById("helpDuck");
+  var helpBubble = document.getElementById("helpBubble");
+  var HELP_POSES = ["thinking", "eureka", "thumbsup", "sleepy"];
+  var helpPoseImgs = {};
+  HELP_POSES.forEach(function (pose) {
+    helpPoseImgs[pose] = helpDuck.querySelector(".help-duck-" + pose);
+  });
+
+  // Keeps all four layered pose images (see the CSS crossfade above) in
+  // whatever color the big duck's currently showing — called from every
+  // place currentColor changes, same as the big duck's own applyDuckImage().
+  // Rewriting all four .src attributes rather than swapping one active
+  // layer's source is what lets the existing opacity crossfade keep working
+  // completely unchanged: each layer just always holds the *right* color's
+  // art for its own pose, whichever one happens to be visible right now.
+  function applyHelpDuckColor(color) {
+    HELP_POSES.forEach(function (pose) {
+      helpPoseImgs[pose].src = "assets/help-" + color + "-" + pose + ".png";
+    });
+  }
+  applyHelpDuckColor(currentColor);
+
+  var HELP_TEXT = "Need help?";
+  var HOVER_HINT_TEXT = "I think the duck is hiding something";
+  var SOLVED_TEXT = "Genius!";
+  var SLEEPY_TEXT = "Zzz…";
+  var solved = false;
+  var helpSleepy = false;
+
+  // Sleepy outranks solved at rest — same "most recent state wins" idea as
+  // the big duck's own idle→sleepy takeover — but hovering (below) outranks
+  // both, same as it always did.
+  function restBubbleText() {
+    if (helpSleepy) return SLEEPY_TEXT;
+    return solved ? SOLVED_TEXT : HELP_TEXT;
+  }
+
+  function showRestBubble() {
+    helpBubble.textContent = restBubbleText();
+  }
+  showRestBubble();
+
+  // Toggles the .sleepy class the CSS crossfade (above) keys off of, and
+  // refreshes the bubble text to match — called from goSleepy()/
+  // markActivity() on the big duck's own shared idle timer, not a second
+  // timer of her own. Same "skip the bubble text update while genuinely
+  // hovering" guard as markSolved() below, for the same reason.
+  function setHelpDuckSleepy(isSleepy) {
+    if (helpSleepy === isSleepy) return;
+    helpSleepy = isSleepy;
+    helpDuck.classList.toggle("sleepy", isSleepy);
+    if (!helpDuck.matches(":hover")) showRestBubble();
+  }
+
+  helpDuck.addEventListener("mouseenter", function () {
+    helpBubble.textContent = HOVER_HINT_TEXT;
+  });
+  helpDuck.addEventListener("mouseleave", showRestBubble);
+  helpDuck.addEventListener("focus", function () {
+    helpBubble.textContent = HOVER_HINT_TEXT;
+  });
+  helpDuck.addEventListener("blur", showRestBubble);
+
+  function markSolved() {
+    if (solved) return; // one-way — once she's proud of you, she stays proud
+    solved = true;
+    helpDuck.classList.add("solved");
+    helpDuck.setAttribute("aria-label", SOLVED_TEXT);
+    // Only updates the visible bubble text if she's not mid-hover right
+    // now (dragging the big duck while also hovering the corner is an odd
+    // combo, but a real one) — the hover hint stays showing until the
+    // mouse actually leaves, exactly like any other rest/hover swap.
+    if (!helpDuck.matches(":hover")) showRestBubble();
+  }
 })();
 </script>
 </body>
