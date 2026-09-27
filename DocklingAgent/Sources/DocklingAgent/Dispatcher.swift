@@ -40,6 +40,11 @@ final class Dispatcher {
     }
 
     private var sessions: [String: Session] = [:]
+    // Session IDs currently waiting out the liveness grace period in
+    // route() below — guards against a burst of events for the same session
+    // each scheduling their own redundant recheck (see route()'s own
+    // comment for why that would just recreate the race it exists to fix).
+    private var sessionsAwaitingLivenessGrace: Set<String> = []
     // Randomized rather than a fixed base: even with startup reconciliation
     // below, this stays a useful second line of defense.
     private var nextPort: UInt16 = UInt16.random(in: Dispatcher.portRangeStart...Dispatcher.portRangeEnd)
@@ -120,6 +125,54 @@ final class Dispatcher {
             return
         }
 
+        if let existing = sessions[sessionID], !existing.isAlive {
+            // Confirmed happening in practice, not just the risk the comment
+            // above already worried about: an ordinary hook event can win
+            // the race against a real, legitimate self-relaunch's own
+            // SelfRelaunched notification — that notification is a separate
+            // async round trip sent by the *new* process only once it's
+            // finished launching, so there's a real window where this
+            // session's tracked pid already looks dead (the old instance is
+            // mid-exit) but the replacement hasn't checked in yet. Landing
+            // here during exactly that window used to respawn a second,
+            // completely fresh replacement with no knowledge of her babies —
+            // orphaning both it and whichever babies the *real* replacement
+            // (still alive at her handoff-restored port) legitimately owned,
+            // since the dispatcher's session table can only ever point at
+            // one of the two and this respawn always won that slot.
+            //
+            // Giving the real relaunch a brief grace period to check in
+            // first closes the window: SelfRelaunched updates this exact
+            // dictionary entry in place (see above), so if it lands before
+            // this fires, the recheck below finds her alive again under her
+            // new pid and this event forwards normally instead.
+            if !sessionsAwaitingLivenessGrace.contains(sessionID) {
+                sessionsAwaitingLivenessGrace.insert(sessionID)
+                fputs("[dockling] session \(sessionID)'s tracked pid is no longer alive, giving her a moment in case she's mid-relaunch before respawning\n", stderr)
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+                    self?.sessionsAwaitingLivenessGrace.remove(sessionID)
+                    self?.routeAfterLivenessGrace(rawJSON: rawJSON, event: event, sessionID: sessionID)
+                }
+            }
+            // Dropped rather than queued behind an already-pending recheck:
+            // a burst of several events landing in the same short window
+            // would otherwise each schedule their own respawn decision,
+            // recreating the same duplicate-spawn race just staggered by
+            // 0.5s instead of eliminated. The one recheck already in flight
+            // covers this session; losing one hook event's Dock update
+            // during this rare window is a much smaller cost than that.
+            return
+        }
+        let session = sessions[sessionID] ?? spawnSession(sessionID: sessionID, cwd: event.cwd)
+        guard let session else { return }
+        if let pane = event.tmuxPane {
+            session.tmuxPane = pane
+            fputs("[dockling] session \(sessionID) tmux pane -> \(pane)\n", stderr)
+        }
+        hookForwarder.forward(rawJSON: rawJSON, to: session.port, attemptsLeft: 5)
+    }
+
+    private func routeAfterLivenessGrace(rawJSON: [String: Any], event: HookEvent, sessionID: String) {
         if let existing = sessions[sessionID], !existing.isAlive {
             fputs("[dockling] session \(sessionID)'s child is no longer alive, respawning\n", stderr)
             sessions.removeValue(forKey: sessionID)

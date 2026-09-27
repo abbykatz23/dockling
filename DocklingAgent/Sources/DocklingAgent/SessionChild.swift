@@ -389,7 +389,14 @@ final class SessionChildDelegate: NSObject, NSApplicationDelegate {
         relaunchWorkItem?.cancel()
         let work = DispatchWorkItem { [weak self] in self?.relaunchFamily() }
         relaunchWorkItem = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.6, execute: work)
+        // Long enough to collect a whole burst of subagents starting within
+        // a few seconds of each other into one relaunch instead of one per
+        // subagent — reported as a real, noticeable UX problem (3 subagents
+        // meant rearranging the Dock 3 times in quick succession), and each
+        // relaunch is also the one place a real, separate race (see
+        // Dispatcher.route()'s liveness-grace handling) can occur, so fewer,
+        // less frequent relaunches lowers exposure to that too. Was 0.6s.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 5, execute: work)
     }
 
     private func relaunchFamily() {
