@@ -11,6 +11,7 @@ import AppKit
 final class SettingsWindowController: NSWindowController, NSWindowDelegate {
     private var config: DocklingConfig
     private var subagentDucksCheckbox: NSButton!
+    private var limitSubagentDucksCheckbox: NSButton!
     private var soundEffectsReadyCheckbox: NSButton!
     private var soundEffectsAwaitingInputCheckbox: NSButton!
     private var updateButton: NSButton!
@@ -122,6 +123,9 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
         let subagentDucksCheckbox = makeCheckbox("Show a baby duck for each subagent", isOn: config.subagentDucks, rowWidth: rowWidth)
         self.subagentDucksCheckbox = subagentDucksCheckbox
         documentStack.addArrangedSubview(subagentDucksCheckbox)
+        let limitSubagentDucksCheckbox = makeCheckbox("Limit to \(DocklingConfig.maxSubagentDucks) baby ducks per session", isOn: config.limitSubagentDucks, rowWidth: rowWidth)
+        self.limitSubagentDucksCheckbox = limitSubagentDucksCheckbox
+        documentStack.addArrangedSubview(limitSubagentDucksCheckbox)
         let soundEffectsReadyCheckbox = makeCheckbox("Quack when done with work", isOn: config.soundEffectsReady, rowWidth: rowWidth)
         self.soundEffectsReadyCheckbox = soundEffectsReadyCheckbox
         documentStack.addArrangedSubview(soundEffectsReadyCheckbox)
@@ -331,6 +335,8 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
         switch sender {
         case subagentDucksCheckbox:
             freshConfig.subagentDucks = sender.state == .on
+        case limitSubagentDucksCheckbox:
+            freshConfig.limitSubagentDucks = sender.state == .on
         case soundEffectsReadyCheckbox:
             freshConfig.soundEffectsReady = sender.state == .on
         case soundEffectsAwaitingInputCheckbox:

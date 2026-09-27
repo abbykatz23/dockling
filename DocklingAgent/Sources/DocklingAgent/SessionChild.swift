@@ -253,7 +253,20 @@ final class SessionChildDelegate: NSObject, NSApplicationDelegate {
             return
         }
 
-        // First we've seen of this subagent — spawn her a duck.
+        // First we've seen of this subagent — spawn her a duck, unless mama
+        // already has as many as this session allows. A burst of many
+        // subagents at once (seen in practice) otherwise has no ceiling on
+        // how many baby ducks pile up in the Dock — capped here rather than
+        // in scheduleRelaunch()/the layout code, so an over-the-cap subagent
+        // never gets a duck, a port, or a process in the first place. Her
+        // own hook events (including eventually SubagentHandback) are just
+        // dropped from here on, same as the subagentDucks-disabled case
+        // above — nothing else about her actual work is affected, only
+        // whether she gets a visual.
+        if dockingConfig.limitSubagentDucks, babies.count >= DocklingConfig.maxSubagentDucks {
+            return
+        }
+
         let babyPort = allocateBabyPort()
         let babySession = "\(sessionID)·\(agentID)"
         let babyName = "\(name) · subagent"

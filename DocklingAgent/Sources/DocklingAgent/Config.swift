@@ -12,18 +12,29 @@ struct DocklingConfig {
     // alert — that someone may want only one of them.
     var soundEffectsReady: Bool
     var soundEffectsAwaitingInput: Bool
+    // On by default: a session that fans out many subagents at once (seen in
+    // practice) can otherwise spawn a baby duck per subagent with no ceiling,
+    // which crowds the Dock fast and isn't a great experience. The cap
+    // itself (maxSubagentDucks below) isn't user-configurable, just this
+    // on/off switch — three was picked as a reasonable "still useful,
+    // doesn't take over the Dock" number, not a value someone needs to tune.
+    var limitSubagentDucks: Bool
 
-    static let `default` = DocklingConfig(subagentDucks: true, soundEffectsReady: true, soundEffectsAwaitingInput: true)
+    static let maxSubagentDucks = 3
+
+    static let `default` = DocklingConfig(subagentDucks: true, soundEffectsReady: true, soundEffectsAwaitingInput: true, limitSubagentDucks: true)
 
     private struct Raw: Decodable {
         let subagentDucks: Bool?
         let soundEffectsReady: Bool?
         let soundEffectsAwaitingInput: Bool?
+        let limitSubagentDucks: Bool?
 
         enum CodingKeys: String, CodingKey {
             case subagentDucks = "subagent_ducks"
             case soundEffectsReady = "sound_effects_ready"
             case soundEffectsAwaitingInput = "sound_effects_awaiting_input"
+            case limitSubagentDucks = "limit_subagent_ducks"
         }
     }
 
@@ -39,7 +50,8 @@ struct DocklingConfig {
         return DocklingConfig(
             subagentDucks: raw.subagentDucks ?? true,
             soundEffectsReady: raw.soundEffectsReady ?? true,
-            soundEffectsAwaitingInput: raw.soundEffectsAwaitingInput ?? true
+            soundEffectsAwaitingInput: raw.soundEffectsAwaitingInput ?? true,
+            limitSubagentDucks: raw.limitSubagentDucks ?? true
         )
     }
 
@@ -55,6 +67,7 @@ struct DocklingConfig {
             "subagent_ducks": subagentDucks,
             "sound_effects_ready": soundEffectsReady,
             "sound_effects_awaiting_input": soundEffectsAwaitingInput,
+            "limit_subagent_ducks": limitSubagentDucks,
         ]
         guard let data = try? JSONSerialization.data(withJSONObject: dict, options: [.prettyPrinted, .sortedKeys]) else { return }
         let directory = (Self.path as NSString).deletingLastPathComponent
