@@ -51,9 +51,7 @@ The entire experience lives on-device: no hosted website, no accounts, no server
 
 **Per-tool-bucket sprites:** bash/edit/search/other buckets (see State design) each need a distinct pose within the "working" custom-index range.
 
-**Default character:** a duck, drawn with Nano Banana.
-
-![Dockling default duck character](./dockling-duck-icon.png)
+**Default character:** a duck, drawn with Nano Banana. (Reference art was kept locally, not committed to this repo — see README's Duck Key for the actual shipped pose images.)
 
 **Icon format requirements:**
 
@@ -73,7 +71,7 @@ Everything is on-device (no hosted server), which removes most of what would oth
 
 **Data handling decisions:**
 
-- Telemetry: opt-in only, anonymous (crash reports, feature usage) — never on by default.
+- ~~Telemetry: opt-in only, anonymous (crash reports, feature usage) — never on by default.~~ **Decided since:** no telemetry of any kind, not even opt-in. Simpler to reason about and to promise, given the on-device/no-account model this whole project is built on.
 - Hook payload content (commands, questions): fully ephemeral, kept in-memory only for current state, never written to disk.
 
 ## Distribution & packaging
@@ -111,11 +109,11 @@ Everything is on-device (no hosted server), which removes most of what would oth
 
 **Phase 4 — public launch polish:**
 
-- Clean-merge hook installation into `~/.claude/settings.json` (never clobber existing hooks)
-- Developer ID signing + notarization
-- Distribution: GitHub Releases (signed DMG) + personal Homebrew tap
-- Opt-in anonymous telemetry (crashes, feature usage)
-- Open source repo cleanup: README, install instructions, license
+- Clean-merge hook installation into `~/.claude/settings.json` (never clobber existing hooks) — **shipped**
+- Developer ID signing + notarization — **shipped**
+- Distribution: GitHub Releases (signed DMG) — **shipped.** Personal Homebrew tap — **shipped**, auto-updated by CI on every release
+- ~~Opt-in anonymous telemetry (crashes, feature usage)~~ — **decided against**, see Security & privacy above
+- Open source repo cleanup: README, install instructions, license — **shipped**
 
 **Explicitly out of scope (not v1, not near-term):**
 

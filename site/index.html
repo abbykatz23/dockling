@@ -635,6 +635,7 @@
   // always win for both, regardless of any lingering click-focus.
   var isHovering = false;
   function setHovering(hovering) {
+    if (solved && hovering) return; // solved is permanent — hovering/focus never re-triggers the hint once she's proud of you
     isHovering = hovering;
     helpDuck.classList.toggle("hovering", hovering);
     helpBubble.textContent = hovering ? HOVER_HINT_TEXT : restBubbleText();
@@ -663,7 +664,10 @@
     solved = true;
     helpDuck.classList.add("solved");
     helpDuck.setAttribute("aria-label", SOLVED_TEXT);
-    if (!isHovering) showRestBubble();
+    // Forces off any hover/focus still active from the drag that just
+    // triggered this — from here on setHovering() itself blocks hovering
+    // from turning back on, so this is the last time it can be true.
+    setHovering(false);
   }
 })();
 </script>

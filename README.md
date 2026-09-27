@@ -44,8 +44,14 @@ Shown here in yellow — the actual color is per-project, not per-pose (see [Per
 
 ### Option A: download (no Terminal, no Swift toolchain)
 
-1. Download the latest signed, notarized DMG from [Releases](https://github.com/abbykatz23/dockling/releases), open it, and drag Dockling to Applications.
-2. Double-click Dockling in Applications and click **Install**. This wires Dockling into `~/.claude/settings.json` so *every* Claude Code session on your machine reports its state — not just sessions run from inside a checkout of this repo — and registers it to start automatically at login. A window opens right after with your settings (see [Configuration](#configuration)) and the [Duck Key](#duck-key). Opening Dockling again later reopens this same window, where you can also change settings, Update, Reinstall, or Uninstall.
+1. Install via Homebrew:
+
+   ```sh
+   brew install --cask abbykatz23/dockling/dockling
+   ```
+
+   Or download the latest signed, notarized DMG from [Releases](https://github.com/abbykatz23/dockling/releases), open it, and drag Dockling to Applications.
+2. Open Dockling from Applications (or Spotlight) and click **Install**. This wires Dockling into `~/.claude/settings.json` so *every* Claude Code session on your machine reports its state — not just sessions run from inside a checkout of this repo — and registers it to start automatically at login. A window opens right after with your settings (see [Configuration](#configuration)) and the [Duck Key](#duck-key). Opening Dockling again later reopens this same window, where you can also change settings, Update, Reinstall, or Uninstall.
 3. Start or continue any Claude Code session. A duck appears in the Dock once the session's first hook fires (`SessionStart`, or the first tool call in some clients).
 
 To uninstall, double-click Dockling in Applications again and click **Uninstall** — see [Uninstalling](#uninstalling).
@@ -160,7 +166,7 @@ Read once at process startup (dispatcher and every session child each load their
 
 ## Known limitations
 
-- No Homebrew tap yet — Releases (signed, notarized DMG) is the only install path today.
+- No official Claude Code plugin listing yet — Homebrew and the signed, notarized DMG on [Releases](https://github.com/abbykatz23/dockling/releases) are the two install paths today.
 - Subagent ("baby") ducks can occasionally leak as orphaned background processes across many family relaunches in one very long session — not yet root-caused. Harmless individually, but they aren't tracked by the dispatcher's own restart-resilience registry (see [Architecture](#architecture)), so only a full restart or [Uninstall](#uninstalling) reliably clears them, not just reopening the app.
 - No telemetry of any kind (this is intentional, not a gap — see `DOCKLING_SPEC.md`).
 
