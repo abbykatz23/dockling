@@ -1,6 +1,6 @@
 # Dockling
 
-A live, per-session duck in your macOS Dock for Claude Code. Every running Claude Code session gets its own Dock icon, and the duck's pose changes in real time with what that session is doing — idle, running a shell command, editing, searching, waiting on you, erroring out, or celebrating a finished task.
+A live, per-session duck in your macOS Dock for Claude Code, showing what each session is doing in real time.
 
 See [DOCKLING_SPEC.md](./DOCKLING_SPEC.md) for the full design rationale. This README covers what's actually built and how to run it today.
 
@@ -45,7 +45,7 @@ Shown here in yellow — the actual color is per-project, not per-pose (see [Per
 ### Option A: download (no Terminal, no Swift toolchain)
 
 1. Download the latest signed, notarized DMG from [Releases](https://github.com/abbykatz23/dockling/releases), open it, and drag Dockling to Applications.
-2. Double-click Dockling in Applications and click **Install**. This wires Dockling into `~/.claude/settings.json` so *every* Claude Code session on your machine reports its state — not just sessions run from inside a checkout of this repo — and registers it to start automatically at login. Right after, a window opens with your settings (whether to show a baby duck for each subagent) and a key showing what each duck pose means. Opening Dockling again later reopens this same window — settings save immediately as you change them, and it's also where you can Uninstall or Reinstall.
+2. Double-click Dockling in Applications and click **Install**. This wires Dockling into `~/.claude/settings.json` so *every* Claude Code session on your machine reports its state — not just sessions run from inside a checkout of this repo — and registers it to start automatically at login. A window opens right after with your settings (see [Configuration](#configuration)) and the [Duck Key](#duck-key). Opening Dockling again later reopens this same window, where you can also change settings, Update, Reinstall, or Uninstall.
 3. Start or continue any Claude Code session. A duck appears in the Dock once the session's first hook fires (`SessionStart`, or the first tool call in some clients).
 
 To uninstall, double-click Dockling in Applications again and click **Uninstall** — see [Uninstalling](#uninstalling).
@@ -105,7 +105,7 @@ Open Dockling (in Applications) and use the **Check for Updates** button in the 
 
 1. Click **Check for Updates**. If a newer release exists, the button changes to **Update to &lt;version&gt;**.
 2. Click it again to download, verify, and install that release. The background dispatcher (and every live duck) is already running the new version by the time this finishes — nothing further needed for that part.
-3. You'll be offered a **Relaunch Now** so the settings window itself (and Dockling.app in Applications) picks up the new version too; **Later** is fine if you just want the background update, but the window stays on whatever it started this session with until the app's next full relaunch.
+3. You'll be offered **Relaunch Now** so the settings window (and Dockling.app in Applications) picks up the new version too — **Later** is fine either way, since the part that matters for your ducks is already updated.
 
 This checks `github.com/abbykatz23/dockling`'s latest release, verifies it's signed and notarized (the same check Gatekeeper itself would do) and signed by the same developer as the copy you already have installed, before installing it — never an arbitrary/unverified download. Not available for a from-source build (nothing to update *to* via this path — use `git pull` + rebuild instead).
 
@@ -161,6 +161,7 @@ Read once at process startup (dispatcher and every session child each load their
 ## Known limitations
 
 - No Homebrew tap yet — Releases (signed, notarized DMG) is the only install path today.
+- Subagent ("baby") ducks can occasionally leak as orphaned background processes across many family relaunches in one very long session — not yet root-caused. Harmless individually, but they aren't tracked by the dispatcher's own restart-resilience registry (see [Architecture](#architecture)), so only a full restart or [Uninstall](#uninstalling) reliably clears them, not just reopening the app.
 - No telemetry of any kind (this is intentional, not a gap — see `DOCKLING_SPEC.md`).
 
 ## License
