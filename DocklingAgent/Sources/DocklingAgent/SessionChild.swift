@@ -259,6 +259,21 @@ final class SessionChildDelegate: NSObject, NSApplicationDelegate {
     // MARK: - Baby (subagent) tracking — mama only
 
     private func handleBabyEvent(agentID: String, agentType: String?, eventName: String, rawJSON: [String: Any]) {
+        // A subagent that never calls a tool (a trivial task — confirmed
+        // happening in practice, not hypothetical) fires exactly one event
+        // for its whole life: SubagentStop. Without this check, that lands
+        // in the "first time we've seen her" branch below exactly like a
+        // real PreToolUse would, spawning her a brand new duck — for a
+        // subagent that's already finished — and forwarding the raw
+        // SubagentStop to it, which her own switch statement has no case
+        // for (default: break), leaving a duck frozen at her initial idle
+        // pose until the 10-minute fallback eventually cleans her up. A
+        // subagent that never did any visible work has nothing worth
+        // showing in the first place, so this skips spawning her a duck at
+        // all rather than spawning one just to immediately celebrate and
+        // remove it.
+        guard !(babies[agentID] == nil && eventName == "SubagentStop") else { return }
+
         if var baby = babies[agentID] {
             guard !baby.isFinishing else { return }
             if eventName == "SubagentStop" {
