@@ -21,15 +21,14 @@ final class SessionChildDelegate: NSObject, NSApplicationDelegate {
         var timeoutWorkItem: DispatchWorkItem? // see scheduleBabyTimeout
     }
 
-    // SubagentHandback (see handleBabyEvent) is the normal "she's done"
-    // signal, but it's occasionally never observed at all for a given
-    // agent_id (seen in practice, likely a signal that gets lost around a
-    // conversation compaction boundary) — which would otherwise leave her
-    // frozen mid-pose forever, with nothing left to ever revisit her. This
-    // is the fallback: if mama hears nothing at all for a baby for this
-    // long, she cleans her up on her own, same as a real SubagentHandback
-    // would. Well above DockIconController's own 5-minute idle timeout —
-    // ordinary tool-call quiet stretches shouldn't trip this.
+    // SubagentStop (see handleBabyEvent) is the normal "she's done" signal,
+    // but nothing guarantees every hook fires (a lost signal, a crashed
+    // subagent, etc.) — which would otherwise leave her frozen mid-pose
+    // forever, with nothing left to ever revisit her. This is the fallback:
+    // if mama hears nothing at all for a baby for this long, she cleans her
+    // up on her own, same as a real SubagentStop would. Well above
+    // DockIconController's own 5-minute idle timeout — ordinary tool-call
+    // quiet stretches shouldn't trip this.
     private let babyTimeout: TimeInterval = 10 * 60
 
     private let sessionID: String
@@ -137,7 +136,7 @@ final class SessionChildDelegate: NSObject, NSApplicationDelegate {
         if isMama, event.name == "SelfRelaunched", let agentID = event.agentID, let newPid = rawJSON["new_pid"] as? Int {
             // One of my babies relaunched herself as part of a family
             // relaunch (see relaunchFamily()) — update my record of her
-            // rather than forwarding this on, so a later SubagentHandback or
+            // rather than forwarding this on, so a later SubagentStop or
             // SessionEnd sweep signals the right (current) pid.
             let oldPid = babies[agentID]?.pid
             babies[agentID]?.pid = Int32(newPid)
@@ -175,7 +174,7 @@ final class SessionChildDelegate: NSObject, NSApplicationDelegate {
 
         if isMama, let agentID = event.agentID {
             guard dockingConfig.subagentDucks else { return } // ignore subagent activity entirely when the feature is off — no baby duck, no effect on mama's own icon
-            handleBabyEvent(agentID: agentID, agentType: event.agentType, toolName: event.toolName, rawJSON: rawJSON)
+            handleBabyEvent(agentID: agentID, agentType: event.agentType, eventName: event.name, rawJSON: rawJSON)
             return
         }
 
@@ -259,14 +258,21 @@ final class SessionChildDelegate: NSObject, NSApplicationDelegate {
 
     // MARK: - Baby (subagent) tracking — mama only
 
-    private func handleBabyEvent(agentID: String, agentType: String?, toolName: String?, rawJSON: [String: Any]) {
+    private func handleBabyEvent(agentID: String, agentType: String?, eventName: String, rawJSON: [String: Any]) {
         if var baby = babies[agentID] {
             guard !baby.isFinishing else { return }
-            if toolName == "SubagentHandback" {
-                // The subagent reporting back is the reliable "I'm done"
-                // signal (confirmed empirically — Claude Code has no
-                // separate SubagentStart/Stop pair we could key off
-                // instead). Show a little eureka celebration, matching the
+            if eventName == "SubagentStop" {
+                // The real "she's done" signal — confirmed directly against
+                // Claude Code's own hook documentation. This used to check
+                // `tool_name == "SubagentStop"`, which could never match
+                // anything: the real event has no `tool_name` field at all,
+                // and its real name is `SubagentStop`, delivered as
+                // `hook_event_name` like any other hook. That mismatch meant
+                // this branch had never actually fired for any subagent,
+                // ever — every baby duck's cleanup was silently falling all
+                // the way through to the 10-minute babyTimeout fallback
+                // below, which is exactly the "gets stuck" symptom this
+                // fixes. Show a little eureka celebration, matching the
                 // main duck's TaskCompleted pose, then remove her shortly
                 // after — reusing DockIconController's own hold duration for
                 // .eureka rather than guessing a number here.
@@ -295,7 +301,7 @@ final class SessionChildDelegate: NSObject, NSApplicationDelegate {
         // how many baby ducks pile up in the Dock — capped here rather than
         // in scheduleRelaunch()/the layout code, so an over-the-cap subagent
         // never gets a duck, a port, or a process in the first place. Her
-        // own hook events (including eventually SubagentHandback) are just
+        // own hook events (including eventually SubagentStop) are just
         // dropped from here on, same as the subagentDucks-disabled case
         // above — nothing else about her actual work is affected, only
         // whether she gets a visual.
@@ -340,7 +346,7 @@ final class SessionChildDelegate: NSObject, NSApplicationDelegate {
         babies[agentID]?.timeoutWorkItem?.cancel()
         let work = DispatchWorkItem { [weak self] in
             guard let self, let baby = self.babies[agentID], !baby.isFinishing else { return }
-            fputs("[dockling] session \(self.sessionID) baby \(agentID) went quiet for \(Int(self.babyTimeout))s with no SubagentHandback ever seen, cleaning her up\n", stderr)
+            fputs("[dockling] session \(self.sessionID) baby \(agentID) went quiet for \(Int(self.babyTimeout))s with no SubagentStop ever seen, cleaning her up\n", stderr)
             self.endBaby(port: baby.port, pid: baby.pid)
             self.babies.removeValue(forKey: agentID)
             self.babyOrder.removeAll { $0 == agentID }

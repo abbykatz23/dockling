@@ -132,7 +132,7 @@ This checks `github.com/abbykatz23/dockling`'s latest release, verifies it's sig
 ## Subagent ("baby") ducks
 
 - The first time a session's subagent makes a tool call, Dockling spawns her a duck: same color as the parent ("mama"), 80% the size, positioned to mama's left.
-- When a subagent reports back (its `SubagentHandback` call — the reliable "I'm done" signal; Claude Code doesn't have a separate subagent-start/stop event pair), her duck shows the eureka pose briefly, then disappears.
+- When a subagent finishes (Claude Code's `SubagentStop` hook), her duck shows the eureka pose briefly, then disappears. If that signal is ever missed, a 10-minute fallback cleans her up anyway rather than leaving her frozen forever.
 - The Dock has no public API to control icon order — it's just launch order among running apps, with no way to group or reorder. To keep a family visually together with mama rightmost, the whole family (every current baby, then mama) relaunches itself under a new pid each time a new baby joins, becoming the most-recently-launched block again. This causes a brief visible flicker across the whole family — a deliberate trade-off, chosen over leaving families to get split apart by other sessions' activity in between.
 - Each relaunch is best-effort, not a documented Dock guarantee, and only triggers on a *new* baby joining (removing one doesn't reshuffle the rest, since Dock order doesn't need it to).
 
