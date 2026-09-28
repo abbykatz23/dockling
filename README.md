@@ -87,6 +87,10 @@ Needs the Swift toolchain (Xcode Command Line Tools is enough — `xcode-select 
 
    See [Uninstalling](#uninstalling) for exactly what this removes.
 
+### Option C: from the website
+
+Download the DMG from [dockling.netlify.app](https://dockling.netlify.app) — the same file as Option A's Releases link, just from the project's website instead. Then follow Option A's steps 2–3 above.
+
 ## Uninstalling
 
 Either double-click Dockling in Applications and click **Uninstall** (with a confirmation step first), or run:
@@ -157,11 +161,6 @@ Create `~/.dockling/config.json` to change any of these (missing keys/file fall 
 All four of these can also be toggled from the settings window.
 
 Changes need a restart to take effect, except `limit_subagent_ducks`, which applies immediately.
-
-## Known limitations
-
-- No official Claude Code plugin listing yet — Homebrew and the signed, notarized DMG on [Releases](https://github.com/abbykatz23/dockling/releases) are the two install paths today.
-- No telemetry of any kind — this is intentional, not a gap.
 
 ## License
 
