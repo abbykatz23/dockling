@@ -493,6 +493,8 @@ final class SessionChildDelegate: NSObject, NSApplicationDelegate {
             "hook_event_name": "SelfRelaunched",
             "session_id": sessionID,
             "new_pid": Int(ProcessInfo.processInfo.processIdentifier),
+            "port": Int(port),
+            "color": color,
         ]
         if let agentID { payload["agent_id"] = agentID }
         hookForwarder.forward(rawJSON: payload, to: parentPort, attemptsLeft: 10)

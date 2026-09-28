@@ -159,7 +159,16 @@ final class Dispatcher {
         // completely fresh replacement that's lost track of her babies.
         if event.name == "SelfRelaunched", let newPid = rawJSON["new_pid"] as? Int {
             let oldPid = sessions[sessionID]?.pid
-            sessions[sessionID]?.pid = Int32(newPid)
+            if let session = sessions[sessionID] {
+                session.pid = Int32(newPid)
+            } else if let port = rawJSON["port"] as? Int, let color = rawJSON["color"] as? String {
+                // The terminationHandler below already gave up on her and
+                // removed her before this landed (a slow relaunch). Re-adopt
+                // her rather than dropping this, or the session's next event
+                // spawns a duplicate mama with her own duplicate babies.
+                sessions[sessionID] = Session(pid: Int32(newPid), port: UInt16(port), color: color)
+                fputs("[dockling] re-adopted relaunched session \(sessionID) on port \(port)\n", stderr)
+            }
             persistRegistry()
             // The old instance was asked to NSApp.terminate() as part of the
             // relaunch, but nothing confirms it actually did — and once her
@@ -200,7 +209,7 @@ final class Dispatcher {
             if !sessionsAwaitingLivenessGrace.contains(sessionID) {
                 sessionsAwaitingLivenessGrace.insert(sessionID)
                 fputs("[dockling] session \(sessionID)'s tracked pid is no longer alive, giving her a moment in case she's mid-relaunch before respawning\n", stderr)
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+                DispatchQueue.main.asyncAfter(deadline: .now() + Self.relaunchGrace) { [weak self] in
                     self?.sessionsAwaitingLivenessGrace.remove(sessionID)
                     self?.routeAfterLivenessGrace(rawJSON: rawJSON, event: event, sessionID: sessionID)
                 }
@@ -209,7 +218,7 @@ final class Dispatcher {
             // a burst of several events landing in the same short window
             // would otherwise each schedule their own respawn decision,
             // recreating the same duplicate-spawn race just staggered by
-            // 0.5s instead of eliminated. The one recheck already in flight
+            // the grace period instead of eliminated. The one recheck already in flight
             // covers this session; losing one hook event's Dock update
             // during this rare window is a much smaller cost than that.
             return
@@ -222,6 +231,11 @@ final class Dispatcher {
         }
         hookForwarder.forward(rawJSON: rawJSON, to: session.port, attemptsLeft: 5)
     }
+
+    // How long a dead-looking pid gets to check back in via SelfRelaunched
+    // before being treated as a crash. A relaunch has to launch a whole new
+    // app bundle first, which has been observed taking well over 0.3s.
+    private static let relaunchGrace: TimeInterval = 3
 
     private func routeAfterLivenessGrace(rawJSON: [String: Any], event: HookEvent, sessionID: String) {
         if let existing = sessions[sessionID], !existing.isAlive {
@@ -269,7 +283,7 @@ final class Dispatcher {
         // notification to land — mirroring the same wait-then-check pattern
         // SessionEnd already uses below for its own force-terminate.
         process.terminationHandler = { [weak self] terminatedProcess in
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+            DispatchQueue.main.asyncAfter(deadline: .now() + Self.relaunchGrace) {
                 guard let self, let current = self.sessions[sessionID], current.pid == terminatedProcess.processIdentifier else { return }
                 fputs("[dockling] session \(sessionID) child exited unexpectedly, removing\n", stderr)
                 self.sessions.removeValue(forKey: sessionID)
