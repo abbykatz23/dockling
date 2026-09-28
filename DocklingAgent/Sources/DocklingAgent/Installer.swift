@@ -352,7 +352,16 @@ enum Installer {
         )
 
         let hookURL = "http://127.0.0.1:\(hookPort)\(hookPath)?token=\(token)"
-        for event in ["PreToolUse", "PostToolUseFailure", "TaskCompleted", "Notification", "Stop", "StopFailure", "SessionEnd", "UserPromptSubmit", "PreCompact"] {
+        // SubagentStop was missing from this list entirely — not a matching
+        // bug in SessionChild.swift (which does correctly key off it, see
+        // handleBabyEvent), but one level more fundamental: Claude Code
+        // only ever calls a hook for an event type actually registered
+        // here, so with this event never registered, Dockling's hook
+        // receiver was never invoked for it at all, for any subagent, ever.
+        // Every baby duck's cleanup had no real signal to work from
+        // regardless of anything downstream — confirmed by checking a real
+        // ~/.claude/settings.json and finding SubagentStop simply absent.
+        for event in ["PreToolUse", "PostToolUseFailure", "TaskCompleted", "Notification", "Stop", "StopFailure", "SubagentStop", "SessionEnd", "UserPromptSubmit", "PreCompact"] {
             hooks[event] = mergedGroups(
                 existing: hooks[event],
                 isDocklingsOwn: isDocklingsHTTPHookGroup,
@@ -507,7 +516,7 @@ enum Installer {
             existing: hooks["SessionStart"],
             isDocklingsOwn: { group in matches(group: group, key: "command", contains: "report_session_start.sh") }
         )
-        for event in ["PreToolUse", "PostToolUseFailure", "TaskCompleted", "Notification", "Stop", "StopFailure", "SessionEnd", "UserPromptSubmit", "PreCompact"] {
+        for event in ["PreToolUse", "PostToolUseFailure", "TaskCompleted", "Notification", "Stop", "StopFailure", "SubagentStop", "SessionEnd", "UserPromptSubmit", "PreCompact"] {
             hooks[event] = withoutDocklingsOwn(
                 existing: hooks[event],
                 isDocklingsOwn: isDocklingsHTTPHookGroup
