@@ -192,7 +192,13 @@ final class SessionChildDelegate: NSObject, NSApplicationDelegate {
             dockIcon.apply(.eureka)
         case "Notification":
             dockIcon.apply(.awaitingInput)
-            if dockingConfig.soundEffectsAwaitingInput { SoundPlayer.play("input_needed_dockling") }
+            // isMama-gated: a subagent can apparently fire her own
+            // Notification/Stop events too (confirmed happening in
+            // practice — subagent ducks were quacking), forwarded to her
+            // the same as any other agent_id-tagged event. Her pose still
+            // updates same as always; only the sound is mama-exclusive —
+            // one quack per real turn, not one per subagent on top.
+            if isMama, dockingConfig.soundEffectsAwaitingInput { SoundPlayer.play("input_needed_dockling") }
         case "Stop":
             // TaskCompleted (below) only fires for todo-list-style milestones
             // — genuinely rare — so on its own eureka barely showed up.
@@ -207,7 +213,7 @@ final class SessionChildDelegate: NSObject, NSApplicationDelegate {
             // Played right at Stop, not delayed to match eureka's later
             // auto-revert to idle — "ready for more instructions" is already
             // true the moment Stop fires, whichever pose shows first.
-            if dockingConfig.soundEffectsReady { SoundPlayer.play("ready_dockling") }
+            if isMama, dockingConfig.soundEffectsReady { SoundPlayer.play("ready_dockling") }
         case "StopFailure":
             dockIcon.apply(.idle)
             didWorkThisTurn = false
