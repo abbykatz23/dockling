@@ -1,5 +1,7 @@
 # Dockling
 
+[![Dockling demo video](https://img.youtube.com/vi/3aWBq6LDKag/maxresdefault.jpg)](https://youtu.be/3aWBq6LDKag)
+
 A live, per-session duck in your macOS Dock for Claude Code, showing what each session is doing in real time.
 
 ## What it does
