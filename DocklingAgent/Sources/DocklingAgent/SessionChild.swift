@@ -31,7 +31,7 @@ final class SessionChildDelegate: NSObject, NSApplicationDelegate {
     // quiet stretches shouldn't trip this.
     private let babyTimeout: TimeInterval = 10 * 60
     // See the "Stop" case's own comment for why this debounces at all.
-    private static let readySoundDebounce: TimeInterval = 2
+    private static let readySoundDebounce: TimeInterval = 5
 
     private let sessionID: String
     private let port: UInt16
