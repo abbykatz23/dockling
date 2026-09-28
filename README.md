@@ -153,7 +153,7 @@ Create `~/.dockling/config.json` to change any of these (missing keys/file fall 
 
 - `subagent_ducks` (default `true`): when off, subagents don't get their own duck, and their activity has no effect on mama's icon either — it's as if they're invisible. The whole family-relaunch mechanism (see below) also never triggers, since it exists solely to keep babies grouped with mama.
 - `limit_subagent_ducks` (default `true`): caps a session at 3 baby ducks at once. A session that fans out many subagents in a burst can otherwise spawn a baby duck per subagent with no ceiling, which crowds the Dock fast. Subagents beyond the cap simply don't get a duck — their actual work is unaffected. The cap itself (3) isn't configurable, only this on/off switch.
-- `sound_effects_ready` (default `true`): when off, the "ready for your next message" cue (on `Stop`) never plays.
+- `sound_effects_ready` (default `true`): when off, the "ready for your next message" cue (on `Stop`) never plays. Debounced by a couple seconds — a single turn that orchestrates several subagents can fire several genuine `Stop` events internally before the one final response you actually see, so only the last one in a burst plays a sound.
 - `sound_effects_awaiting_input` (default `true`): when off, the "waiting on you" cue (on `Notification`) never plays.
 
 All four of these can also be toggled from the settings window.

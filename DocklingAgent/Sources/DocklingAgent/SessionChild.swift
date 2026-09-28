@@ -30,6 +30,8 @@ final class SessionChildDelegate: NSObject, NSApplicationDelegate {
     // DockIconController's own 5-minute idle timeout — ordinary tool-call
     // quiet stretches shouldn't trip this.
     private let babyTimeout: TimeInterval = 10 * 60
+    // See the "Stop" case's own comment for why this debounces at all.
+    private static let readySoundDebounce: TimeInterval = 2
 
     private let sessionID: String
     private let port: UInt16
@@ -43,6 +45,7 @@ final class SessionChildDelegate: NSObject, NSApplicationDelegate {
     private var server: HookServer?
     private let hookForwarder = HookForwarder()
     private var didWorkThisTurn = false // set on PreToolUse, reset on UserPromptSubmit — see the "Stop" case for why
+    private var readySoundWorkItem: DispatchWorkItem?
 
     // Mama-only state (babies never populate these).
     private var babies: [String: Baby] = [:] // agent_id -> baby
@@ -198,10 +201,7 @@ final class SessionChildDelegate: NSObject, NSApplicationDelegate {
             // the same as any other agent_id-tagged event. Her pose still
             // updates same as always; only the sound is mama-exclusive —
             // one quack per real turn, not one per subagent on top.
-            if isMama, dockingConfig.soundEffectsAwaitingInput {
-                fputs("[dockling] session \(sessionID) playing input_needed_dockling (isMama=\(isMama), agentID=\(agentID ?? "nil"))\n", stderr)
-                SoundPlayer.play("input_needed_dockling")
-            }
+            if isMama, dockingConfig.soundEffectsAwaitingInput { SoundPlayer.play("input_needed_dockling") }
         case "Stop":
             // TaskCompleted (below) only fires for todo-list-style milestones
             // — genuinely rare — so on its own eureka barely showed up.
@@ -213,12 +213,30 @@ final class SessionChildDelegate: NSObject, NSApplicationDelegate {
             // wouldn't feel like an accomplishment).
             dockIcon.apply(didWorkThisTurn ? .eureka : .idle)
             didWorkThisTurn = false
-            // Played right at Stop, not delayed to match eureka's later
-            // auto-revert to idle — "ready for more instructions" is already
-            // true the moment Stop fires, whichever pose shows first.
+            // Debounced, not played right at Stop directly — confirmed by
+            // direct testing (with logging) that a single turn orchestrating
+            // several subagents can produce a real burst of several genuine
+            // Stop events on mama's own session before the one final
+            // response a person actually sees, each one legitimately real
+            // (Claude Code's own docs: Stop fires once per turn — there are
+            // just more real turns happening internally than the visible
+            // response suggests). Playing a sound on every one of them
+            // sounded like a stuck kazoo. Restarting this timer on every
+            // Stop and only actually playing once it fires unanswered means
+            // only the *last* Stop in a burst ever produces a sound — the
+            // moment nothing else follows it, which is the only point
+            // "ready for your next message" is actually true. A normal,
+            // isolated single-turn interaction still gets a quack, just a
+            // couple seconds after Stop instead of immediately — an
+            // imperceptible cost for an ambient cue.
             if isMama, dockingConfig.soundEffectsReady {
-                fputs("[dockling] session \(sessionID) playing ready_dockling (isMama=\(isMama), agentID=\(agentID ?? "nil"))\n", stderr)
-                SoundPlayer.play("ready_dockling")
+                readySoundWorkItem?.cancel()
+                let work = DispatchWorkItem { [weak self] in
+                    fputs("[dockling] session \(self?.sessionID ?? "?") playing ready_dockling (Stop burst settled)\n", stderr)
+                    SoundPlayer.play("ready_dockling")
+                }
+                readySoundWorkItem = work
+                DispatchQueue.main.asyncAfter(deadline: .now() + Self.readySoundDebounce, execute: work)
             }
         case "StopFailure":
             dockIcon.apply(.idle)
@@ -255,6 +273,11 @@ final class SessionChildDelegate: NSObject, NSApplicationDelegate {
             relaunchSelf()
         case "SessionEnd":
             fputs("[dockling] session \(sessionID) ended, exiting\n", stderr)
+            // A pending debounced ready_dockling (see the "Stop" case) has
+            // nothing left to be "ready" for once the session is over —
+            // without this, a session ended right on the tail of a Stop
+            // burst could still quack a couple seconds into its own farewell.
+            readySoundWorkItem?.cancel()
             for baby in babies.values { endBaby(port: baby.port, pid: baby.pid) }
             // The dispatcher forwards SessionEnd and then, per its own
             // comment, waits 2s before force-terminating us if we haven't
