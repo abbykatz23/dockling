@@ -2,8 +2,6 @@
 
 A live, per-session duck in your macOS Dock for Claude Code, showing what each session is doing in real time.
 
-See [DOCKLING_SPEC.md](./DOCKLING_SPEC.md) for the full design rationale. This README covers what's actually built and how to run it today.
-
 ## What it does
 
 - One Dock icon per active Claude Code session (not one aggregate icon), driven by Claude Code's [hook system](https://docs.claude.com/en/docs/claude-code/hooks).
@@ -38,7 +36,6 @@ Shown here in yellow — the actual color is per-project, not per-pose (see [Per
 ## Requirements
 
 - macOS
-- Swift toolchain (Xcode Command Line Tools is enough — `xcode-select --install`), only if building from source (Option B below) — the downloaded DMG (Option A) ships a prebuilt binary and needs nothing beyond macOS itself.
 
 ## Setup
 
@@ -58,6 +55,8 @@ To uninstall, double-click Dockling in Applications again and click **Uninstall*
 
 ### Option B: from source
 
+Needs the Swift toolchain (Xcode Command Line Tools is enough — `xcode-select --install`). Not required for Option A — the DMG ships a prebuilt binary and needs nothing beyond macOS itself.
+
 1. **Build and register the hooks.** Same clean-merge guarantee as above: your existing hooks (for any event, any tool) are left untouched, and re-running this is always safe.
 
    ```sh
@@ -66,7 +65,7 @@ To uninstall, double-click Dockling in Applications again and click **Uninstall*
 
    This also generates a per-install secret at `~/.dockling/secret`, required on every hook request so no other local process can spoof an event.
 
-2. **Run the dispatcher.** This is the one long-lived process; it listens on port 8765 and spawns a child process (and Dock icon) per session.
+2. **Run the dispatcher.** This is the one long-lived background process — it gives each session its own Dock icon.
 
    ```sh
    ~/.dockling/bin/DocklingAgent --dispatcher &
@@ -105,19 +104,19 @@ Both remove the same things:
 
 This can't be undone — a later reinstall starts from scratch (fresh per-project colors, default config) rather than restoring what was there before.
 
-**Just dragging Dockling.app to the Trash also works**, even without opening it to click Uninstall first — the background process notices its app is gone (checked once a minute, acted on after two consecutive misses to ignore any brief in-progress state) and uninstalls itself the same way, within about two minutes.
+**Just dragging Dockling.app to the Trash also works**, even without opening it to click Uninstall first — it notices and uninstalls itself the same way, within about two minutes.
 
 ## Updating
 
 Open Dockling (in Applications) and use the **Check for Updates** button in the settings window — no need to download a new DMG or drag anything to Applications by hand:
 
 1. Click **Check for Updates**. If a newer release exists, the button changes to **Update to &lt;version&gt;**.
-2. Click it again to download, verify, and install that release. The background dispatcher (and every live duck) is already running the new version by the time this finishes — nothing further needed for that part.
-3. You'll be offered **Relaunch Now** so the settings window (and Dockling.app in Applications) picks up the new version too — **Later** is fine either way, since the part that matters for your ducks is already updated.
+2. Click it again to download, verify, and install that release. Your ducks are already running the new version by the time this finishes.
+3. You'll be offered **Relaunch Now** so Dockling.app itself picks up the new version too — **Later** is fine either way, since your ducks are already updated.
 
 This checks `github.com/abbykatz23/dockling`'s latest release, verifies it's signed and notarized (the same check Gatekeeper itself would do) and signed by the same developer as the copy you already have installed, before installing it — never an arbitrary/unverified download. Not available for a from-source build (nothing to update *to* via this path — use `git pull` + rebuild instead).
 
-**Reinstall vs. Update** — the settings window also has a **Reinstall** button, which does something different: it re-registers hooks and restarts the background process using whatever's *already installed*, without checking for anything newer. Use it to repair a broken install (hooks got wiped by hand-editing `~/.claude/settings.json`, the `launchd` registration got removed, etc.) — Update won't help there, since as far as it's concerned nothing's out of date.
+**Reinstall vs. Update** — the settings window also has a **Reinstall** button, which does something different: it re-registers hooks using whatever's *already installed*, without checking for anything newer. Use it to repair a broken install (e.g. hooks got wiped by hand-editing `~/.claude/settings.json`) — Update won't help there, since as far as it's concerned nothing's out of date.
 
 ## Per-project colors
 
@@ -135,8 +134,7 @@ This checks `github.com/abbykatz23/dockling`'s latest release, verifies it's sig
 
 - The first time a session's subagent makes a tool call, Dockling spawns her a duck: same color as the parent ("mama"), 80% the size, positioned to mama's left.
 - When a subagent finishes (Claude Code's `SubagentStop` hook), her duck shows the eureka pose briefly, then disappears. If that signal is ever missed, a 10-minute fallback cleans her up anyway rather than leaving her frozen forever.
-- The Dock has no public API to control icon order — it's just launch order among running apps, with no way to group or reorder. To keep a family visually together with mama rightmost, the whole family (every current baby, then mama) relaunches itself under a new pid each time a new baby joins, becoming the most-recently-launched block again. This causes a brief visible flicker across the whole family — a deliberate trade-off, chosen over leaving families to get split apart by other sessions' activity in between.
-- Each relaunch is best-effort, not a documented Dock guarantee, and only triggers on a *new* baby joining (removing one doesn't reshuffle the rest, since Dock order doesn't need it to).
+- The Dock doesn't let apps control their own icon order, so to keep a family together with mama rightmost, the whole family briefly flickers and regroups each time a new baby joins — the alternative was letting families get scattered apart by other sessions' activity in between. Several subagents joining in a quick burst still only causes one regroup, not one per subagent.
 
 ## Configuration
 
@@ -151,29 +149,19 @@ Create `~/.dockling/config.json` to change any of these (missing keys/file fall 
 }
 ```
 
-- `subagent_ducks` (default `true`): when off, subagents don't get their own duck, and their activity has no effect on mama's icon either — it's as if they're invisible. The whole family-relaunch mechanism (see below) also never triggers, since it exists solely to keep babies grouped with mama.
+- `subagent_ducks` (default `true`): when off, subagents don't get their own duck, and their activity has no effect on mama's icon either — it's as if they're invisible. The Dock-regrouping flicker (see [Subagent ("baby") ducks](#subagent-baby-ducks)) also never triggers, since it exists solely to keep babies grouped with mama.
 - `limit_subagent_ducks` (default `true`): caps a session at 3 baby ducks at once. A session that fans out many subagents in a burst can otherwise spawn a baby duck per subagent with no ceiling, which crowds the Dock fast. Subagents beyond the cap simply don't get a duck — their actual work is unaffected. The cap itself (3) isn't configurable, only this on/off switch.
 - `sound_effects_ready` (default `true`): when off, the "ready for your next message" cue (on `Stop`) never plays. Debounced by 5 seconds — a single turn that orchestrates several subagents can fire several genuine `Stop` events internally before the one final response you actually see, so only the last one in a burst plays a sound.
 - `sound_effects_awaiting_input` (default `true`): when off, the "waiting on you" cue (on `Notification`) never plays.
 
 All four of these can also be toggled from the settings window.
 
-Read once at process startup (dispatcher and every session child each load their own copy), so a change takes effect on the next restart, not live.
-
-## Architecture
-
-- **Dispatcher** (`DocklingAgent` run with no args): the one stable process, bound to the well-known hook port. Never appears in the Dock itself. On each new `session_id`, spawns a child process and hands it a dynamically allocated port.
-- **Session child** (`DocklingAgent --session <id> --port <port> --color <color> --name <project>`): owns exactly one Dock icon (`NSApp.applicationIconImage`), launched through a synthesized per-project `.app` bundle so the Dock's hover tooltip shows the real project name. Exits when its session ends.
-- **Auth**: every hook request (both real Claude Code hooks and the dispatcher's internal forwards to a child) must carry `?token=<secret>` matching `~/.dockling/secret`, or it's rejected.
-- **Restart resilience**: the dispatcher persists its session table (pid/port/color per session) to `~/.dockling/sessions.json` and reconciles with it on startup — adopting still-running children instead of spawning duplicates, and dropping anything no longer alive. This is what makes the `launchd` `KeepAlive` restart-on-crash behavior safe. Baby ducks aren't in this registry (only mama tracks her own babies, in-memory) — a dispatcher restart while subagents are active can orphan their ducks, same trade-off the top-level registry exists to avoid.
-- **Self-relaunch port handoff**: a session child relaunching itself (to reclaim the rightmost Dock position after a new baby joins — see [Subagent ("baby") ducks](#subagent-baby-ducks)) spawns its replacement onto the *same* port before exiting, so there's always a brief window where both processes want it. The replacement retries the bind until the old one releases it.
-- **Fixed: the leak behind occasional orphaned baby ducks.** The retry above used to be wired to the wrong signal — `NWListener`'s initializer essentially never throws for a port already in use; the conflict only ever surfaces afterward, asynchronously, once `.start()` has already been called. The old retry loop only fired on that (effectively dead) synchronous-throw path, so a relaunching child that lost the port race — which the design above means it always inherently might — just sat there forever: still running, still showing a Dock icon frozen at whatever pose it last had, but with a listener that had already permanently failed and would never receive another hook event. Confirmed by directly reproducing the exact race with two real `DocklingAgent` processes on the same port; fixed by retrying on the real async failure signal instead, with a generous 10-second retry budget (measured real recovery time is well under a second, even under this exact race, but the budget costs nothing on the success path). As a last-resort backstop, a session child that still can't bind after exhausting every retry now exits cleanly instead of running with a dead server — turning any remaining failure mode into a duck that disappears rather than one that leaks forever.
-- **Icon assets**: `--install` copies them to `~/.dockling/resources`, and every Dock icon loads from there rather than from inside the repo checkout. Loading straight out of the checkout (via SPM's `Bundle.module`) would trigger a macOS permission prompt on every single session/subagent spawn if the repo happens to live under Downloads, Desktop, or Documents — a real risk given how often people clone into Downloads by default.
+Changes need a restart to take effect, except `limit_subagent_ducks`, which applies immediately.
 
 ## Known limitations
 
 - No official Claude Code plugin listing yet — Homebrew and the signed, notarized DMG on [Releases](https://github.com/abbykatz23/dockling/releases) are the two install paths today.
-- No telemetry of any kind (this is intentional, not a gap — see `DOCKLING_SPEC.md`).
+- No telemetry of any kind — this is intentional, not a gap.
 
 ## License
 

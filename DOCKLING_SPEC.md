@@ -41,6 +41,8 @@ The entire experience lives on-device: no hosted website, no accounts, no server
 
 ## Character & asset system
 
+**Not how this ended up shipping** — this section is the original plan (sprite packs, a shared index convention with Claude Pet). What actually shipped is simpler: one hand-drawn pose per state, per color, as plain PNGs — no sprite packs, no shared index convention with anything else. Kept here as the reasoning trail, not a description of the current asset pipeline.
+
 **Format:** Shimeji-ee / Shijima-Qt sprite packs — the same format Claude Pet uses. This gives access to an existing community-sized ecosystem of character packs rather than needing bespoke art from scratch.
 
 **Static vs. animation:** full animation. Technically no harder than static (the Dock icon is just an image being swapped/redrawn either way — same mechanism Activity Monitor uses for its live graphs), and baseline animations (idle, walking, sitting, etc.) come largely for free from a compatible pack.
