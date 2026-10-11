@@ -4,3 +4,4 @@
 icons/AppIcon.iconset/
 .DS_Store
 dist/
+node_modules/

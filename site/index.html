@@ -529,6 +529,11 @@
     try {
       new Audio("assets/quack.mp3").play().catch(function () {});
     } catch (e) {}
+    // Bumps the private download counter (netlify/functions/count-download.mjs).
+    // sendBeacon sends no body and isn't cancelled by the download starting.
+    try {
+      navigator.sendBeacon("/api/count-download");
+    } catch (e) {}
   });
 
   // Hovering a letter of "dockling!" turns her that color — whatever pose
